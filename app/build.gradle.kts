@@ -90,6 +90,7 @@ dependencies {
     implementation("androidx.credentials:credentials:1.3.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("io.coil-kt:coil-compose:2.5.0")
 
     // Retrofit & OkHttp for Groq API
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
@@ -118,5 +119,5 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-    
+
 }
