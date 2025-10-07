@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,7 +50,6 @@ import kotlinx.coroutines.launch
 fun ChatScreen(
     chatViewModel: ChatViewModel,
     authViewModel: AuthViewModel,
-    onNavigateToHistory: () -> Unit,
     onOpenDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -85,11 +83,6 @@ fun ChatScreen(
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
                         Icon(Icons.Default.Menu, "Menu")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onNavigateToHistory) {
-                        Icon(Icons.Default.History, "History")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
