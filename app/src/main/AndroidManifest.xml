@@ -25,7 +25,7 @@
         tools:targetApi="tiramisu">
 
         <activity
-            android:name=".ui.MainActivity"
+            android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.XChatAi"
             android:windowSoftInputMode="adjustResize">
