@@ -1,7 +1,4 @@
-# XChatAi - AI-Powered Chat Application
-
-<div align="center">
-
+## XChatAi - AI-Powered Chat Application
 ![XChatAi Logo](https://img.shields.io/badge/XChatAi-v1.0.0-blue)
 ![Android](https://img.shields.io/badge/Platform-Android-green)
 ![Kotlin](https://img.shields.io/badge/Language-Kotlin-purple)
@@ -200,13 +197,10 @@ If you find this project helpful, please give it a ⭐️!
 Feel free to share feedback or report issues via GitHub Discussions or Issues.
 ---
 
-<div align="center">
-
 **Built with ❤️ using Kotlin and Jetpack Compose**
-
 [![Made with Kotlin](https://img.shields.io/badge/Made%20with-Kotlin-0095D5?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpack-compose&logoColor=white)](https://developer.android.com/jetpack/compose)
 
-</div>
+
 
 
