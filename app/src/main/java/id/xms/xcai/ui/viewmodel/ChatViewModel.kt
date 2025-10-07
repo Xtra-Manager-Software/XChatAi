@@ -4,7 +4,6 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.database.ChildEventListener
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
@@ -48,32 +47,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var rateLimitListener: ValueEventListener? = null
     private var currentUserId: String? = null
     private var pollingJob: Job? = null
+    private var isUserTyping = false // Track typing state
 
-    // Setup real-time listener dengan logging detail
     fun setupRateLimitListener(userId: String) {
         Log.d("ChatViewModel", "=== SETUP LISTENER ===")
         Log.d("ChatViewModel", "User ID: $userId")
 
         currentUserId = userId
+
         rateLimitListener?.let {
             Log.d("ChatViewModel", "Removing previous listener")
             firebaseDb.getReference("rate_limits/$userId").removeEventListener(it)
         }
 
-        // Stop previous polling
         pollingJob?.cancel()
 
         val rateLimitRef = firebaseDb.getReference("rate_limits/$userId")
 
-        // Load initial value first
         loadRemainingRequests(userId)
 
-        // Create new listener
         rateLimitListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 Log.d("ChatViewModel", "=== LISTENER ON DATA CHANGE ===")
                 Log.d("ChatViewModel", "Snapshot exists: ${snapshot.exists()}")
-                Log.d("ChatViewModel", "Snapshot value: ${snapshot.value}")
 
                 if (!snapshot.exists()) {
                     Log.d("ChatViewModel", "No data, setting to 20")
@@ -88,25 +84,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val count = snapshot.child("count").getValue(Int::class.java) ?: 0
                 val windowStart = snapshot.child("windowStart").getValue(Long::class.java) ?: 0L
 
-                Log.d("ChatViewModel", "Count: $count")
-                Log.d("ChatViewModel", "WindowStart: $windowStart")
-                Log.d("ChatViewModel", "Current time: $currentTime")
-
-                // Check if window expired
                 val timeDiff = currentTime - windowStart
                 val isExpired = timeDiff > 30 * 60 * 1000L
 
-                Log.d("ChatViewModel", "Time diff: $timeDiff ms (${timeDiff/1000}s)")
-                Log.d("ChatViewModel", "Is expired: $isExpired")
-
                 val remaining = if (isExpired || windowStart == 0L) {
-                    Log.d("ChatViewModel", "Window expired, returning 20")
                     20
                 } else {
                     (20 - count).coerceAtLeast(0)
                 }
-
-                Log.d("ChatViewModel", "Calculated remaining: $remaining")
 
                 _chatUiState.value = _chatUiState.value.copy(
                     remainingRequests = remaining,
@@ -119,7 +104,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             override fun onCancelled(error: DatabaseError) {
                 Log.e("ChatViewModel", "=== LISTENER CANCELLED ===")
                 Log.e("ChatViewModel", "Error: ${error.message}")
-                Log.e("ChatViewModel", "Details: ${error.details}")
 
                 _chatUiState.value = _chatUiState.value.copy(
                     remainingRequests = 20,
@@ -128,27 +112,31 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Attach listener
         Log.d("ChatViewModel", "Attaching listener to: rate_limits/$userId")
         rateLimitRef.addValueEventListener(rateLimitListener!!)
 
-        // Start polling sebagai backup
+        // Start polling with typing detection
         startPolling(userId)
 
         Log.d("ChatViewModel", "=== LISTENER SETUP COMPLETE ===")
     }
 
-    // Polling sebagai backup jika listener fail
+    // Polling with typing detection
     private fun startPolling(userId: String) {
-        Log.d("ChatViewModel", "Starting polling every 3 seconds")
+        Log.d("ChatViewModel", "Starting smart polling")
         pollingJob?.cancel()
         pollingJob = viewModelScope.launch {
-            delay(3000) // Delay initial
+            delay(5000) // Initial delay
             while(isActive) {
                 try {
-                    Log.d("ChatViewModel", "Polling: Loading remaining requests")
-                    loadRemainingRequests(userId)
-                    delay(3000) // Poll setiap 3 detik
+                    // Only poll if user is NOT typing
+                    if (!isUserTyping) {
+                        Log.d("ChatViewModel", "Polling: Loading remaining requests")
+                        loadRemainingRequests(userId)
+                    } else {
+                        Log.d("ChatViewModel", "Polling: Skipped (user typing)")
+                    }
+                    delay(10000) // Poll every 10 seconds (lebih lambat)
                 } catch (e: Exception) {
                     Log.e("ChatViewModel", "Polling error: ${e.message}")
                 }
@@ -159,6 +147,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private fun stopPolling() {
         Log.d("ChatViewModel", "Stopping polling")
         pollingJob?.cancel()
+    }
+
+    // Call this when user starts typing
+    fun setUserTyping(typing: Boolean) {
+        isUserTyping = typing
+        Log.d("ChatViewModel", "User typing state: $typing")
     }
 
     fun loadRemainingRequests(userId: String) {
@@ -197,7 +191,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Setup listener (di luar coroutine)
         setupRateLimitListener(userId)
     }
 
@@ -268,7 +261,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
                 _chatUiState.value = _chatUiState.value.copy(isLoading = false)
 
-                // Force reload
                 loadRemainingRequests(userId)
             }.onFailure { exception ->
                 _chatUiState.value = _chatUiState.value.copy(

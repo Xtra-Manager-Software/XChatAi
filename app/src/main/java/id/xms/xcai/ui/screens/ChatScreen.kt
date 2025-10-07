@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -74,7 +74,19 @@ fun ChatScreen(
     var showLowQuotaWarning by remember { mutableStateOf(false) }
     var rateLimitMessage by remember { mutableStateOf("") }
 
-    // Show alert saat pertama buka app jika quota habis
+    // Track typing state untuk pause polling
+    LaunchedEffect(messageText) {
+        chatViewModel.setUserTyping(messageText.isNotEmpty())
+    }
+
+    // Cleanup typing state on dispose
+    DisposableEffect(Unit) {
+        onDispose {
+            chatViewModel.setUserTyping(false)
+        }
+    }
+
+    // Show alert saat quota habis
     LaunchedEffect(chatUiState.remainingRequests, chatUiState.isLoadingCounter) {
         if (!chatUiState.isLoadingCounter && chatUiState.remainingRequests == 0) {
             rateLimitMessage = "You've reached the maximum of 20 requests per 30 minutes. Please wait before sending more messages."
@@ -114,25 +126,7 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("XChatAi")
-
-                            // Manual refresh button
-                            IconButton(
-                                onClick = {
-                                    authUiState.user?.uid?.let { userId ->
-                                        chatViewModel.loadRemainingRequests(userId)
-                                    }
-                                },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Refresh counter",
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
+                        Text("XChatAi")
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -154,7 +148,7 @@ fun ChatScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "Loading...",
+                                    text = "Syncing...",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                 )
@@ -273,8 +267,7 @@ fun ChatScreen(
                 }
             }
 
-
-
+            // Input Field Container
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -311,7 +304,11 @@ fun ChatScreen(
                 ) {
                     OutlinedTextField(
                         value = messageText,
-                        onValueChange = { messageText = it },
+                        onValueChange = {
+                            messageText = it
+                            // Notify ViewModel about typing state
+                            chatViewModel.setUserTyping(it.isNotEmpty())
+                        },
                         modifier = Modifier.weight(1f),
                         placeholder = { Text("Type a message...") },
                         shape = RoundedCornerShape(24.dp),
@@ -327,6 +324,8 @@ fun ChatScreen(
                                 authUiState.user?.uid?.let { userId ->
                                     chatViewModel.sendMessage(userId, messageText.trim())
                                     messageText = ""
+                                    // Reset typing state after send
+                                    chatViewModel.setUserTyping(false)
                                 }
                             } else if (chatUiState.remainingRequests == 0) {
                                 showRateLimitDialog = true

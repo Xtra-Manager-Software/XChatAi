@@ -8,10 +8,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="id.xms.xcai" />
+                  <option name="mobileSdkAppId" value="1:1023109162505:android:44e43b8cc1646a81817ad8" />
+                  <option name="projectId" value="xchatai-db9f5" />
+                  <option name="projectNumber" value="1023109162505" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />
