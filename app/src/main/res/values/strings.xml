@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">XChatAi</string>
+    <string name="sign_in_with_google">Sign in with Google</string>
+    <string name="send">Send</string>
+    <string name="type_message">Type a message...</string>
+    <string name="new_chat">New Chat</string>
+    <string name="history">History</string>
+    <string name="sign_out">Sign Out</string>
+    <string name="delete">Delete</string>
+    <string name="backup">Backup</string>
+    <string name="restore">Restore</string>
 </resources>
