@@ -17,7 +17,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = "llama-3.3-70b-versatile"
+            initialValue = "moonshotai/kimi-k2-instruct-0905"
         )
 
     val isDarkMode: StateFlow<Boolean> = preferencesManager.isDarkMode

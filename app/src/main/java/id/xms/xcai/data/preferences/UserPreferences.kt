@@ -22,7 +22,7 @@ class UserPreferencesManager(private val context: Context) {
 
     val selectedModelId: Flow<String> = context.dataStore.data
         .map { preferences ->
-            preferences[SELECTED_MODEL_KEY] ?: "llama-3.3-70b-versatile"
+            preferences[SELECTED_MODEL_KEY] ?: "moonshotai/kimi-k2-instruct-0905"
         }
 
     val isDarkMode: Flow<Boolean> = context.dataStore.data

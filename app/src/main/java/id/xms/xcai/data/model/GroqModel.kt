@@ -67,6 +67,6 @@ data class GroqModel(
             )
         )
 
-        val defaultModel = availableModels[0] // llama-3.3-70b-versatile
+        val defaultModel = availableModels[3] // Default to Kimi K2 Instruct
     }
 }
