@@ -3,7 +3,7 @@ package id.xms.xcai.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import id.xms.xcai.data.preferences.UserPreferencesManager
+import id.xms.xcai.data.preferences.UserPreferences  // ← GANTI INI
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val preferencesManager = UserPreferencesManager(application)
+    private val preferencesManager = UserPreferences(application)
 
     val selectedModelId: StateFlow<String> = preferencesManager.selectedModelId
         .stateIn(
