@@ -11,7 +11,7 @@
 
 ## 📱 Overview
 
-XChatAi is a modern Android application that provides seamless interaction with advanced AI models (DeepSeek R1 and Llama) through an intuitive and beautiful interface. Built with Jetpack Compose and following Material Design 3 guidelines, it offers a ChatGPT-like experience with unique features including real-time typewriter effects, thinking process visualization, and comprehensive conversation management.
+XChatAi is a modern Android application that provides seamless interaction with advanced AI models through an intuitive and beautiful interface. Built with Jetpack Compose and following Material Design 3 guidelines, it offers a ChatGPT-like experience with unique features including real-time typewriter effects, thinking process visualization, and comprehensive conversation management.
 
 ### 🎯 Key Highlights
 
