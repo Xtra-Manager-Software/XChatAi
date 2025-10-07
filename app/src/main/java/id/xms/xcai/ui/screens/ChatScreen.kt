@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import id.xms.xcai.ui.components.MessageItem
+import id.xms.xcai.ui.components.ThinkingIndicator
 import id.xms.xcai.ui.viewmodel.AuthViewModel
 import id.xms.xcai.ui.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
@@ -265,30 +266,15 @@ fun ChatScreen(
 
                         if (chatUiState.isLoading) {
                             item {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    horizontalArrangement = Arrangement.Start
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                    Spacer(modifier = Modifier.size(8.dp))
-                                    Text(
-                                        text = "AI is thinking...",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                                ThinkingIndicator()
                             }
                         }
                     }
                 }
             }
 
-            // Input Field Container
+
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
