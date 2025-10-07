@@ -1,19 +1,40 @@
 package id.xms.xcai.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.MutableData
+import com.google.firebase.database.Transaction
 import id.xms.xcai.data.local.ChatDatabase
 import id.xms.xcai.data.local.ChatEntity
 import id.xms.xcai.data.local.ConversationEntity
 import id.xms.xcai.data.remote.GroqApiService
 import id.xms.xcai.data.remote.GroqChatRequest
 import id.xms.xcai.data.remote.Message
-import id.xms.xcai.data.preferences.UserPreferencesManager
+import id.xms.xcai.data.preferences.UserPreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+
+data class RateLimitData(
+    @get:com.google.firebase.database.PropertyName("count")
+    @set:com.google.firebase.database.PropertyName("count")
+    var count: Int = 0,
+
+    @get:com.google.firebase.database.PropertyName("windowStart")
+    @set:com.google.firebase.database.PropertyName("windowStart")
+    var windowStart: Long = 0L,
+
+    @get:com.google.firebase.database.PropertyName("lastRequest")
+    @set:com.google.firebase.database.PropertyName("lastRequest")
+    var lastRequest: Long = 0L
+) {
+    constructor() : this(0, 0L, 0L)
+}
 
 class ChatRepository(context: Context) {
 
@@ -22,9 +43,15 @@ class ChatRepository(context: Context) {
     private val conversationDao = database.conversationDao()
     private val groqApi = GroqApiService.create()
     private val firebaseDb = FirebaseDatabase.getInstance()
-    private val preferencesManager = UserPreferencesManager(context)
+    private val preferencesManager = UserPreferences(context)
 
-    // Conversation operations
+    private val MAX_HISTORY_MESSAGES = 15
+
+    companion object {
+        private const val MAX_REQUESTS = 20
+        private const val TIME_WINDOW_MS = 30 * 60 * 1000L // 30 menit
+    }
+
     fun getConversationsByUser(userId: String): Flow<List<ConversationEntity>> {
         return conversationDao.getConversationsByUser(userId)
     }
@@ -49,7 +76,6 @@ class ChatRepository(context: Context) {
         return conversationDao.getConversationById(id)
     }
 
-    // Chat operations
     fun getChatsByConversation(conversationId: Long): Flow<List<ChatEntity>> {
         return chatDao.getChatsByConversation(conversationId)
     }
@@ -62,25 +88,153 @@ class ChatRepository(context: Context) {
         chatDao.deleteChatsInConversation(conversationId)
     }
 
-    // Groq API call with selected model from preferences
+    suspend fun checkServerRateLimit(userId: String): Pair<Boolean, String> =
+        withContext(Dispatchers.IO) {
+            suspendCoroutine { continuation ->
+                val rateLimitRef = firebaseDb.getReference("rate_limits/$userId")
+
+                rateLimitRef.runTransaction(object : Transaction.Handler {
+                    override fun doTransaction(currentData: MutableData): Transaction.Result {
+                        val currentTime = System.currentTimeMillis()
+
+                        val data = currentData.getValue(RateLimitData::class.java)
+                            ?: RateLimitData()
+
+                        Log.d("ChatRepository", "Transaction - Current time: $currentTime")
+                        Log.d("ChatRepository", "Transaction - Window start: ${data.windowStart}")
+                        Log.d("ChatRepository", "Transaction - Count: ${data.count}")
+
+                        // Check if this is first request or window expired
+                        val isFirstRequest = data.windowStart == 0L || data.count == 0
+                        val timeDiff = currentTime - data.windowStart
+                        val isExpired = timeDiff > TIME_WINDOW_MS && data.windowStart != 0L
+
+                        if (isFirstRequest || isExpired) {
+                            // Reset window - ini request pertama di window baru
+                            Log.d("ChatRepository", "Starting new window")
+                            data.count = 1  // Set ke 1, bukan 0!
+                            data.windowStart = currentTime
+                            data.lastRequest = currentTime
+                            currentData.value = data
+                            return Transaction.success(currentData)
+                        }
+
+                        // Check if limit exceeded
+                        if (data.count >= MAX_REQUESTS) {
+                            Log.d("ChatRepository", "Limit exceeded: ${data.count}/$MAX_REQUESTS")
+                            return Transaction.abort()
+                        }
+
+                        // Increment count
+                        data.count += 1
+                        data.lastRequest = currentTime
+                        currentData.value = data
+
+                        Log.d("ChatRepository", "Count incremented to: ${data.count}")
+                        return Transaction.success(currentData)
+                    }
+
+                    override fun onComplete(
+                        error: com.google.firebase.database.DatabaseError?,
+                        committed: Boolean,
+                        dataSnapshot: com.google.firebase.database.DataSnapshot?
+                    ) {
+                        if (error != null) {
+                            Log.e("ChatRepository", "Transaction error: ${error.message}")
+                            continuation.resume(Pair(false, "Rate limit check failed: ${error.message}"))
+                            return
+                        }
+
+                        if (!committed) {
+                            val data = dataSnapshot?.getValue(RateLimitData::class.java)
+                            val currentTime = System.currentTimeMillis()
+                            val timeRemaining = TIME_WINDOW_MS - (currentTime - (data?.windowStart ?: 0L))
+                            val minutesRemaining = (timeRemaining / 60000).toInt() + 1
+
+                            Log.d("ChatRepository", "Transaction aborted - Rate limit reached")
+                            Log.d("ChatRepository", "Minutes remaining: $minutesRemaining")
+
+                            continuation.resume(
+                                Pair(
+                                    false,
+                                    "Rate limit reached. Please wait $minutesRemaining minutes before sending more messages."
+                                )
+                            )
+                        } else {
+                            Log.d("ChatRepository", "Transaction committed successfully")
+                            continuation.resume(Pair(true, ""))
+                        }
+                    }
+                })
+            }
+        }
+
+    suspend fun getServerRemainingRequests(userId: String): Int = withContext(Dispatchers.IO) {
+        try {
+            val snapshot = firebaseDb.getReference("rate_limits/$userId")
+                .get()
+                .await()
+
+            if (!snapshot.exists()) {
+                Log.d("ChatRepository", "No rate limit data exists, returning 20")
+                return@withContext MAX_REQUESTS
+            }
+
+            val data = snapshot.getValue(RateLimitData::class.java)
+            if (data == null) {
+                Log.d("ChatRepository", "Failed to parse rate limit data, returning 20")
+                return@withContext MAX_REQUESTS
+            }
+
+            val currentTime = System.currentTimeMillis()
+            val timeDiff = currentTime - data.windowStart
+
+            Log.d("ChatRepository", "=== Get Remaining Requests ===")
+            Log.d("ChatRepository", "Current time: $currentTime")
+            Log.d("ChatRepository", "Window start: ${data.windowStart}")
+            Log.d("ChatRepository", "Time diff: $timeDiff ms (${timeDiff/1000}s)")
+            Log.d("ChatRepository", "Count: ${data.count}")
+
+            // Check if window expired OR invalid timestamp
+            if (timeDiff > TIME_WINDOW_MS || data.windowStart == 0L || data.windowStart > currentTime) {
+                Log.d("ChatRepository", "Window expired/invalid, returning 20")
+                return@withContext MAX_REQUESTS
+            }
+
+            val remaining = (MAX_REQUESTS - data.count).coerceAtLeast(0)
+            Log.d("ChatRepository", "Remaining requests: $remaining")
+
+            return@withContext remaining
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error getting remaining: ${e.message}")
+            e.printStackTrace()
+            return@withContext MAX_REQUESTS
+        }
+    }
+
     suspend fun sendMessageToGroq(
         conversationId: Long,
-        userMessage: String
+        userMessage: String,
+        userId: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            // Get API key from Firebase
+            val (canProceed, errorMessage) = checkServerRateLimit(userId)
+            if (!canProceed) {
+                return@withContext Result.failure(Exception(errorMessage))
+            }
+
             val apiKey = getApiKeyFromFirebase()
-
-            // Get selected model from preferences
             val selectedModelId = preferencesManager.selectedModelId.first()
+            val allHistory = chatDao.getChatsByConversationSync(conversationId)
 
-            // Get conversation history
-            val history = chatDao.getChatsByConversationSync(conversationId)
+            val limitedHistory = if (allHistory.size > MAX_HISTORY_MESSAGES) {
+                allHistory.takeLast(MAX_HISTORY_MESSAGES)
+            } else {
+                allHistory
+            }
 
-            // Build messages list with conversation history
             val messages = mutableListOf<Message>()
 
-            // Add system message (optional, for better context)
             messages.add(
                 Message(
                     role = "system",
@@ -88,8 +242,7 @@ class ChatRepository(context: Context) {
                 )
             )
 
-            // Add conversation history
-            history.forEach { chat ->
+            limitedHistory.forEach { chat ->
                 messages.add(
                     Message(
                         role = if (chat.isUser) "user" else "assistant",
@@ -98,10 +251,8 @@ class ChatRepository(context: Context) {
                 )
             }
 
-            // Add current user message
             messages.add(Message(role = "user", content = userMessage))
 
-            // Make API call with selected model
             val request = GroqChatRequest(
                 model = selectedModelId,
                 messages = messages,
@@ -135,12 +286,10 @@ class ChatRepository(context: Context) {
         }
     }
 
-    // Get current selected model (useful for displaying in UI)
     suspend fun getSelectedModel(): String {
         return preferencesManager.selectedModelId.first()
     }
 
-    // Backup and restore operations
     suspend fun getAllConversations(): List<ConversationEntity> {
         return conversationDao.getAllConversations()
     }
@@ -163,7 +312,6 @@ class ChatRepository(context: Context) {
         }
     }
 
-    // Clear all conversations for a user
     suspend fun deleteAllConversationsByUser(userId: String) {
         withContext(Dispatchers.IO) {
             conversationDao.deleteAllConversationsByUser(userId)
