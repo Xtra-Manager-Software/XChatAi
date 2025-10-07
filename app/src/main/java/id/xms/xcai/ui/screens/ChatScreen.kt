@@ -34,6 +34,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -42,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +51,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import id.xms.xcai.ui.components.AIThinkingIndicator
@@ -57,9 +60,8 @@ import id.xms.xcai.ui.components.MessageItem
 import id.xms.xcai.ui.components.StreamingMessageItem
 import id.xms.xcai.ui.viewmodel.AuthViewModel
 import id.xms.xcai.ui.viewmodel.ChatViewModel
-import androidx.compose.runtime.derivedStateOf
 import kotlinx.coroutines.delay
-
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +72,7 @@ fun ChatScreen(
     modifier: Modifier = Modifier
 ) {
     val chatUiState by chatViewModel.chatUiState.collectAsState()
+    val premiumStatus by chatViewModel.premiumStatus.collectAsState()
     val authUiState by authViewModel.authUiState.collectAsState()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -80,21 +83,18 @@ fun ChatScreen(
     var showLowQuotaWarning by remember { mutableStateOf(false) }
     var rateLimitMessage by remember { mutableStateOf("") }
 
-    // Track typing state untuk pause polling
     LaunchedEffect(messageText) {
         chatViewModel.setUserTyping(messageText.isNotEmpty())
     }
 
-    // Cleanup typing state on dispose
     DisposableEffect(Unit) {
         onDispose {
             chatViewModel.setUserTyping(false)
         }
     }
 
-    // Show alert saat quota habis
     LaunchedEffect(chatUiState.remainingRequests, chatUiState.isLoadingCounter) {
-        if (!chatUiState.isLoadingCounter && chatUiState.remainingRequests == 0) {
+        if (!chatUiState.isLoadingCounter && chatUiState.remainingRequests == 0 && !premiumStatus.isPremium) {
             rateLimitMessage = "You've reached the maximum of 20 requests per 30 minutes. Please wait before sending more messages."
             showRateLimitDialog = true
         }
@@ -113,7 +113,6 @@ fun ChatScreen(
         }
     }
 
-    // Auto scroll during streaming (setiap character)
     LaunchedEffect(chatUiState.streamingText) {
         if (chatUiState.isStreaming && chatUiState.streamingText.isNotEmpty()) {
             val targetIndex = if (chatUiState.messages.isEmpty()) 0 else chatUiState.messages.size
@@ -121,7 +120,6 @@ fun ChatScreen(
         }
     }
 
-    // Show error snackbar or dialog
     LaunchedEffect(chatUiState.error) {
         chatUiState.error?.let { error ->
             if (error.contains("Rate limit", ignoreCase = true)) {
@@ -134,9 +132,8 @@ fun ChatScreen(
         }
     }
 
-    // Show low quota warning when <= 5 requests left
     LaunchedEffect(chatUiState.remainingRequests) {
-        if (chatUiState.remainingRequests in 1..5 && !showLowQuotaWarning && !chatUiState.isLoadingCounter) {
+        if (chatUiState.remainingRequests in 1..5 && !showLowQuotaWarning && !chatUiState.isLoadingCounter && !premiumStatus.isPremium) {
             showLowQuotaWarning = true
         }
     }
@@ -146,13 +143,42 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("XChatAi")
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("XChatAi")
+
+                            if (premiumStatus.isPremium) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = when (premiumStatus.tier) {
+                                        "premium_plus" -> Color(0xFFFFD700)
+                                        else -> MaterialTheme.colorScheme.primaryContainer
+                                    }
+                                ) {
+                                    Text(
+                                        text = when (premiumStatus.tier) {
+                                            "premium_plus" -> "💎 PLUS"
+                                            else -> "⭐ PRO"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = when (premiumStatus.tier) {
+                                            "premium_plus" -> Color(0xFF1A1A1A)
+                                            else -> MaterialTheme.colorScheme.onPrimaryContainer
+                                        },
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            if (chatUiState.remainingRequests <= 5 && !chatUiState.isLoadingCounter) {
+                            if (chatUiState.remainingRequests <= 5 && !chatUiState.isLoadingCounter && !premiumStatus.isPremium) {
                                 Icon(
                                     imageVector = Icons.Default.Warning,
                                     contentDescription = null,
@@ -173,16 +199,24 @@ fun ChatScreen(
                                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                 )
                             } else {
+                                val maxReq = if (premiumStatus.maxRequests == -1) "∞" else premiumStatus.maxRequests.toString()
+                                val displayText = if (premiumStatus.maxRequests == -1) {
+                                    "✨ Unlimited requests"
+                                } else {
+                                    "${chatUiState.remainingRequests}/$maxReq requests left"
+                                }
+
                                 Text(
-                                    text = "${chatUiState.remainingRequests}/20 requests left",
+                                    text = displayText,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = when {
+                                        premiumStatus.isPremium -> MaterialTheme.colorScheme.primary
                                         chatUiState.remainingRequests == 0 -> MaterialTheme.colorScheme.error
                                         chatUiState.remainingRequests <= 5 -> MaterialTheme.colorScheme.error
                                         chatUiState.remainingRequests <= 10 -> MaterialTheme.colorScheme.tertiary
                                         else -> MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                     },
-                                    fontWeight = if (chatUiState.remainingRequests <= 5) FontWeight.Bold else FontWeight.Normal
+                                    fontWeight = if (premiumStatus.isPremium) FontWeight.Bold else FontWeight.Normal
                                 )
                             }
                         }
@@ -209,9 +243,9 @@ fun ChatScreen(
                 .imePadding()
                 .navigationBarsPadding()
         ) {
-            // Rate limit progress bar
-            if (chatUiState.remainingRequests < 20 && !chatUiState.isLoadingCounter) {
-                val progress = chatUiState.remainingRequests / 20f
+            if (chatUiState.remainingRequests < 20 && !chatUiState.isLoadingCounter && !premiumStatus.isPremium) {
+                val maxReq = if (premiumStatus.maxRequests == -1) Int.MAX_VALUE else premiumStatus.maxRequests
+                val progress = chatUiState.remainingRequests.toFloat() / maxReq.toFloat()
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.fillMaxWidth(),
@@ -223,14 +257,12 @@ fun ChatScreen(
                 )
             }
 
-            // Messages List
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
                 if (chatUiState.messages.isEmpty() && !chatUiState.isLoading) {
-                    // Empty State
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -253,9 +285,9 @@ fun ChatScreen(
                         )
                         Spacer(modifier = Modifier.size(8.dp))
                         Text(
-                            text = "Ask me anything!",
+                            text = if (premiumStatus.isPremium) "✨ You have premium access!" else "Ask me anything!",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (premiumStatus.isPremium) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
                         Spacer(modifier = Modifier.size(24.dp))
@@ -263,21 +295,45 @@ fun ChatScreen(
                         if (chatUiState.isLoadingCounter) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp))
                         } else {
-                            Text(
-                                text = "You have ${chatUiState.remainingRequests} requests left",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                            )
+                            if (premiumStatus.isPremium) {
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = when (premiumStatus.tier) {
+                                                "premium_plus" -> "💎 Premium Plus"
+                                                else -> "⭐ Premium"
+                                            },
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.size(4.dp))
+                                        Text(
+                                            text = if (premiumStatus.maxRequests == -1) "Unlimited requests" else "${premiumStatus.maxRequests} requests / 30 minutes",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = "You have ${chatUiState.remainingRequests} requests left",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
                         }
                     }
                 } else {
-                    // Messages with indicators
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(vertical = 8.dp)
                     ) {
-                        // ALL existing messages
                         items(
                             items = chatUiState.messages,
                             key = { it.id }
@@ -288,7 +344,6 @@ fun ChatScreen(
                             )
                         }
 
-                        // Streaming message
                         if (chatUiState.isStreaming && chatUiState.streamingText.isNotEmpty()) {
                             item(key = "streaming_message") {
                                 StreamingMessageItem(
@@ -298,7 +353,6 @@ fun ChatScreen(
                             }
                         }
 
-                        // Thinking indicator
                         if (chatUiState.isThinking) {
                             item(key = "thinking_indicator") {
                                 AIThinkingIndicator(
@@ -306,8 +360,6 @@ fun ChatScreen(
                                 )
                             }
                         }
-
-                        // Typing indicator
                         else if (chatUiState.isLoading && !chatUiState.isStreaming && chatUiState.messages.isNotEmpty()) {
                             item(key = "typing_indicator") {
                                 AITypingIndicator(
@@ -318,14 +370,13 @@ fun ChatScreen(
                     }
                 }
             }
-            // Input Field Container
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
             ) {
-                // Low quota warning banner
-                if (chatUiState.remainingRequests <= 5 && chatUiState.remainingRequests > 0 && !chatUiState.isLoadingCounter) {
+                if (chatUiState.remainingRequests <= 5 && chatUiState.remainingRequests > 0 && !chatUiState.isLoadingCounter && !premiumStatus.isPremium) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -348,7 +399,6 @@ fun ChatScreen(
                     }
                 }
 
-                // Input Row
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -365,30 +415,30 @@ fun ChatScreen(
                         placeholder = { Text("Type a message...") },
                         shape = RoundedCornerShape(24.dp),
                         maxLines = 4,
-                        enabled = !chatUiState.isLoading && chatUiState.remainingRequests > 0 && !chatUiState.isLoadingCounter
+                        enabled = !chatUiState.isLoading && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium) && !chatUiState.isLoadingCounter
                     )
 
                     Spacer(modifier = Modifier.size(8.dp))
 
                     IconButton(
                         onClick = {
-                            if (messageText.isNotBlank() && chatUiState.remainingRequests > 0) {
+                            if (messageText.isNotBlank() && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium)) {
                                 authUiState.user?.uid?.let { userId ->
                                     chatViewModel.sendMessage(userId, messageText.trim())
                                     messageText = ""
                                     chatViewModel.setUserTyping(false)
                                 }
-                            } else if (chatUiState.remainingRequests == 0) {
+                            } else if (chatUiState.remainingRequests == 0 && !premiumStatus.isPremium) {
                                 showRateLimitDialog = true
                                 rateLimitMessage = "You've reached the maximum of 20 requests per 30 minutes. Please wait before sending more messages."
                             }
                         },
-                        enabled = messageText.isNotBlank() && !chatUiState.isLoading && chatUiState.remainingRequests > 0 && !chatUiState.isLoadingCounter
+                        enabled = messageText.isNotBlank() && !chatUiState.isLoading && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium) && !chatUiState.isLoadingCounter
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Send,
                             contentDescription = "Send",
-                            tint = if (messageText.isNotBlank() && !chatUiState.isLoading && chatUiState.remainingRequests > 0 && !chatUiState.isLoadingCounter) {
+                            tint = if (messageText.isNotBlank() && !chatUiState.isLoading && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium) && !chatUiState.isLoadingCounter) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
@@ -400,7 +450,6 @@ fun ChatScreen(
         }
     }
 
-    // Rate Limit Dialog
     if (showRateLimitDialog) {
         AlertDialog(
             onDismissRequest = { showRateLimitDialog = false },
@@ -452,8 +501,7 @@ fun ChatScreen(
         )
     }
 
-    // Low Quota Warning Dialog
-    if (showLowQuotaWarning && chatUiState.remainingRequests in 1..5 && !chatUiState.isLoadingCounter) {
+    if (showLowQuotaWarning && chatUiState.remainingRequests in 1..5 && !chatUiState.isLoadingCounter && !premiumStatus.isPremium) {
         AlertDialog(
             onDismissRequest = { showLowQuotaWarning = false },
             icon = {

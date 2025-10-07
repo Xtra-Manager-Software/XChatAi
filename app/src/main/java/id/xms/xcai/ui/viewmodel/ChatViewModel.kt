@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
@@ -11,6 +12,8 @@ import com.google.firebase.database.ValueEventListener
 import id.xms.xcai.data.local.ChatEntity
 import id.xms.xcai.data.local.ConversationEntity
 import id.xms.xcai.data.repository.ChatRepository
+import id.xms.xcai.data.repository.PremiumManager
+import id.xms.xcai.data.repository.PremiumStatus
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +42,7 @@ data class ConversationUiState(
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ChatRepository(application)
+    private val premiumManager = PremiumManager()
     private val firebaseDb = FirebaseDatabase.getInstance()
 
     private val _chatUiState = MutableStateFlow(ChatUiState())
@@ -47,28 +51,57 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _conversationUiState = MutableStateFlow(ConversationUiState())
     val conversationUiState: StateFlow<ConversationUiState> = _conversationUiState.asStateFlow()
 
+    private val _premiumStatus = MutableStateFlow(PremiumStatus())
+    val premiumStatus: StateFlow<PremiumStatus> = _premiumStatus.asStateFlow()
+
     private var rateLimitListener: ValueEventListener? = null
     private var currentUserId: String? = null
     private var pollingJob: Job? = null
     private var isUserTyping = false
     private var chatCollectionJob: Job? = null
     private var streamingJob: Job? = null
+    private var premiumJob: Job? = null
 
     fun setupRateLimitListener(userId: String) {
+        Log.d("ChatViewModel", "=== SETUP LISTENER ===")
         currentUserId = userId
+
         rateLimitListener?.let {
             firebaseDb.getReference("rate_limits/$userId").removeEventListener(it)
         }
+
         pollingJob?.cancel()
+
+        val userEmail = FirebaseAuth.getInstance().currentUser?.email
+
+        if (userEmail != null) {
+            viewModelScope.launch {
+                val status = premiumManager.checkPremiumStatus(userEmail)
+                _premiumStatus.value = status
+
+                val maxReq = premiumManager.getMaxRequests(status)
+                Log.d("ChatViewModel", "User is ${status.tier}, max requests: $maxReq")
+            }
+
+            premiumJob?.cancel()
+            premiumJob = viewModelScope.launch {
+                premiumManager.observePremiumStatus(userEmail).collect { status ->
+                    _premiumStatus.value = status
+                    Log.d("ChatViewModel", "Premium status updated: ${status.tier}")
+                }
+            }
+        }
 
         val rateLimitRef = firebaseDb.getReference("rate_limits/$userId")
         loadRemainingRequests(userId)
 
         rateLimitListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
+                val maxRequests = premiumManager.getMaxRequests(_premiumStatus.value)
+
                 if (!snapshot.exists()) {
                     _chatUiState.value = _chatUiState.value.copy(
-                        remainingRequests = 20,
+                        remainingRequests = maxRequests,
                         isLoadingCounter = false
                     )
                     return
@@ -80,7 +113,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 val timeDiff = currentTime - windowStart
                 val isExpired = timeDiff > 30 * 60 * 1000L
 
-                val remaining = if (isExpired || windowStart == 0L) 20 else (20 - count).coerceAtLeast(0)
+                val remaining = if (isExpired || windowStart == 0L) maxRequests else (maxRequests - count).coerceAtLeast(0)
 
                 _chatUiState.value = _chatUiState.value.copy(
                     remainingRequests = remaining,
@@ -89,8 +122,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             override fun onCancelled(error: DatabaseError) {
+                val maxRequests = premiumManager.getMaxRequests(_premiumStatus.value)
                 _chatUiState.value = _chatUiState.value.copy(
-                    remainingRequests = 20,
+                    remainingRequests = maxRequests,
                     isLoadingCounter = false
                 )
             }
@@ -106,7 +140,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             delay(5000)
             while(isActive) {
                 try {
-                    if (!isUserTyping) loadRemainingRequests(userId)
+                    if (!isUserTyping) {
+                        loadRemainingRequests(userId)
+                    }
                     delay(10000)
                 } catch (e: Exception) {
                     Log.e("ChatViewModel", "Polling error: ${e.message}")
@@ -127,14 +163,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 _chatUiState.value = _chatUiState.value.copy(isLoadingCounter = true)
-                val remaining = repository.getServerRemainingRequests(userId)
+                val maxRequests = premiumManager.getMaxRequests(_premiumStatus.value)
+                val remaining = repository.getServerRemainingRequests(userId, maxRequests)
                 _chatUiState.value = _chatUiState.value.copy(
                     remainingRequests = remaining,
                     isLoadingCounter = false
                 )
             } catch (e: Exception) {
+                Log.e("ChatViewModel", "Error loading rate limit: ${e.message}")
+                val maxRequests = premiumManager.getMaxRequests(_premiumStatus.value)
                 _chatUiState.value = _chatUiState.value.copy(
-                    remainingRequests = 20,
+                    remainingRequests = maxRequests,
                     isLoadingCounter = false
                 )
             }
@@ -155,7 +194,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadChats(conversationId: Long) {
+        Log.d("ChatViewModel", "=== LOAD CHATS ===")
+        Log.d("ChatViewModel", "Loading conversation: $conversationId")
+
         chatCollectionJob?.cancel()
+
         chatCollectionJob = viewModelScope.launch {
             _chatUiState.value = _chatUiState.value.copy(
                 currentConversationId = conversationId,
@@ -169,9 +212,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             messages = chats,
                             isLoading = false
                         )
+                        Log.d("ChatViewModel", "Messages loaded: ${chats.size}")
                     }
                 }
             } catch (e: Exception) {
+                Log.e("ChatViewModel", "Error loading chats: ${e.message}")
                 _chatUiState.value = _chatUiState.value.copy(isLoading = false)
             }
         }
@@ -179,6 +224,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendMessage(userId: String, message: String) {
         viewModelScope.launch {
+            Log.d("ChatViewModel", "=== SEND MESSAGE ===")
+            Log.d("ChatViewModel", "Message: $message")
+            Log.d("ChatViewModel", "Current conversation: ${_chatUiState.value.currentConversationId}")
+
             _chatUiState.value = _chatUiState.value.copy(
                 isLoading = true,
                 error = null,
@@ -188,15 +237,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             var conversationId = _chatUiState.value.currentConversationId
 
             if (conversationId == null) {
+                Log.d("ChatViewModel", "Creating new conversation...")
                 conversationId = repository.createConversation(
                     userId = userId,
                     title = message.take(50)
                 )
+                Log.d("ChatViewModel", "New conversation created: $conversationId")
+
                 _chatUiState.value = _chatUiState.value.copy(currentConversationId = conversationId)
                 loadChats(conversationId)
             }
 
-            // Insert user message
             repository.insertChat(
                 ChatEntity(
                     conversationId = conversationId,
@@ -205,20 +256,23 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
 
-            // Show thinking
             _chatUiState.value = _chatUiState.value.copy(isThinking = true)
 
-            // Call API
-            val result = repository.sendMessageToGroq(conversationId, message, userId)
+            val maxRequests = premiumManager.getMaxRequests(_premiumStatus.value)
+            val result = repository.sendMessageToGroq(conversationId, message, userId, maxRequests)
 
             result.onSuccess { aiResponse ->
+                Log.d("ChatViewModel", "API success, starting typewriter effect")
+
                 _chatUiState.value = _chatUiState.value.copy(
                     isThinking = false,
                     isLoading = false
                 )
+
                 startTypewriterEffect(conversationId, aiResponse)
                 loadRemainingRequests(userId)
             }.onFailure { exception ->
+                Log.e("ChatViewModel", "API failed: ${exception.message}")
                 _chatUiState.value = _chatUiState.value.copy(
                     isLoading = false,
                     isThinking = false,
@@ -292,6 +346,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun renameConversation(conversation: ConversationEntity, newTitle: String) {
         viewModelScope.launch {
             try {
+                Log.d("ChatViewModel", "Renaming conversation ${conversation.id} to: $newTitle")
                 repository.updateConversation(
                     conversation.copy(
                         title = newTitle.trim(),
@@ -309,6 +364,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearCurrentConversation() {
+        Log.d("ChatViewModel", "=== CLEAR CONVERSATION ===")
+
         chatCollectionJob?.cancel()
         chatCollectionJob = null
         stopStreaming()
@@ -326,9 +383,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        Log.d("ChatViewModel", "=== ON CLEARED ===")
+
         stopPolling()
         chatCollectionJob?.cancel()
         streamingJob?.cancel()
+        premiumJob?.cancel()
 
         rateLimitListener?.let { listener ->
             currentUserId?.let { userId ->

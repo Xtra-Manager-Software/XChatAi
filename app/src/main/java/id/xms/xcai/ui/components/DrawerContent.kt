@@ -1,5 +1,7 @@
 package id.xms.xcai.ui.components
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -26,16 +28,18 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,7 +48,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,12 +58,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.google.firebase.auth.FirebaseUser
 import id.xms.xcai.data.local.ConversationEntity
+import id.xms.xcai.data.repository.PremiumStatus
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -71,6 +77,7 @@ fun DrawerContent(
     user: FirebaseUser?,
     conversations: List<ConversationEntity>,
     currentConversationId: Long?,
+    premiumStatus: PremiumStatus,
     isLoading: Boolean,
     onConversationClick: (Long) -> Unit,
     onNewChat: () -> Unit,
@@ -84,8 +91,10 @@ fun DrawerContent(
     var conversationToRename by remember { mutableStateOf<ConversationEntity?>(null) }
     var renameText by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
+    var showPremiumDialog by remember { mutableStateOf(false) }
 
-    // Filter conversations based on search
+    val context = LocalContext.current
+
     val filteredConversations = remember(conversations, searchQuery) {
         if (searchQuery.isBlank()) {
             conversations
@@ -108,7 +117,6 @@ fun DrawerContent(
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
-            // Profile Header
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(0.dp),
@@ -127,7 +135,6 @@ fun DrawerContent(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Profile Photo
                         if (user?.photoUrl != null) {
                             AsyncImage(
                                 model = user.photoUrl,
@@ -172,17 +179,71 @@ fun DrawerContent(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+
+                            if (premiumStatus.isPremium) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = when (premiumStatus.tier) {
+                                        "premium_plus" -> Color(0xFFFFD700)
+                                        else -> MaterialTheme.colorScheme.secondaryContainer
+                                    }
+                                ) {
+                                    Text(
+                                        text = when (premiumStatus.tier) {
+                                            "premium_plus" -> "💎 Premium Plus"
+                                            else -> "⭐ Premium"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = when (premiumStatus.tier) {
+                                            "premium_plus" -> Color(0xFF1A1A1A)
+                                            else -> MaterialTheme.colorScheme.onSecondaryContainer
+                                        },
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
                         }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Action Buttons
+                    // Upgrade to Premium Button (Only for Free Users)
+                    if (!premiumStatus.isPremium) {
+                        Surface(
+                            onClick = { showPremiumDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFFD700)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Diamond,
+                                    contentDescription = "Upgrade",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = Color(0xFF1A1A1A)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Upgrade to Premium",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1A1A1A)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Settings Button
                         Surface(
                             onClick = onSettingsClick,
                             modifier = Modifier.weight(1f),
@@ -209,7 +270,6 @@ fun DrawerContent(
                             }
                         }
 
-                        // Logout Button
                         Surface(
                             onClick = onLogout,
                             modifier = Modifier.weight(1f),
@@ -239,7 +299,6 @@ fun DrawerContent(
                 }
             }
 
-            // Search Bar
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -298,7 +357,6 @@ fun DrawerContent(
                 }
             }
 
-            // New Chat Button (Better UI)
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -341,9 +399,12 @@ fun DrawerContent(
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "Start a fresh conversation",
+                            text = if (premiumStatus.isPremium) "✨ Premium access" else "Start a fresh conversation",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                            color = if (premiumStatus.isPremium)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                         )
                     }
                 }
@@ -351,7 +412,6 @@ fun DrawerContent(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // History Section Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -377,7 +437,6 @@ fun DrawerContent(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Conversation List
             if (isLoading) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -440,7 +499,18 @@ fun DrawerContent(
         }
     }
 
-    // Delete Dialog
+    // Premium Dialog
+    if (showPremiumDialog) {
+        PremiumDialog(
+            onDismiss = { showPremiumDialog = false },
+            onContactTelegram = {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/GustyxPower"))
+                context.startActivity(intent)
+                showPremiumDialog = false
+            }
+        )
+    }
+
     conversationToDelete?.let { conversation ->
         AlertDialog(
             onDismissRequest = { conversationToDelete = null },
@@ -475,7 +545,6 @@ fun DrawerContent(
         )
     }
 
-    // Rename Dialog
     conversationToRename?.let { conversation ->
         AlertDialog(
             onDismissRequest = {
@@ -527,6 +596,165 @@ fun DrawerContent(
             }
         )
     }
+}
+
+@Composable
+private fun PremiumDialog(
+    onDismiss: () -> Unit,
+    onContactTelegram: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Default.Diamond,
+                contentDescription = null,
+                tint = Color(0xFFFFD700),
+                modifier = Modifier.size(48.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "Upgrade to Premium",
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Choose your premium plan:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+
+                // Premium Plan
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Premium",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "100 Requests / 30 min",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "$1 / month",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                // Premium Plus Plan
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFFFFD700).copy(alpha = 0.2f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Diamond,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Premium Plus",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Unlimited Requests",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFD700)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "$4 Lifetime",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFD700)
+                        )
+                    }
+                }
+
+                HorizontalDivider()
+
+                Text(
+                    text = "Contact via Telegram for payment & proof:",
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Text(
+                    text = "t.me/GustyxPower",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onContactTelegram,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF0088CC)
+                )
+            ) {
+                Text("Open Telegram")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

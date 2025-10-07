@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
                 val authUiState by authViewModel.authUiState.collectAsState()
                 val chatUiState by chatViewModel.chatUiState.collectAsState()
                 val conversationUiState by chatViewModel.conversationUiState.collectAsState()
+                val premiumStatus by chatViewModel.premiumStatus.collectAsState()
 
                 val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
                 val scope = rememberCoroutineScope()
@@ -56,14 +57,12 @@ class MainActivity : ComponentActivity() {
 
                 if (authUiState.user != null) {
                     if (showSettings) {
-                        // Show Settings Screen
                         SettingsScreen(
                             settingsViewModel = settingsViewModel,
                             onNavigateBack = { showSettings = false },
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        // Show Chat Screen with Drawer
                         ModalNavigationDrawer(
                             drawerState = drawerState,
                             drawerContent = {
@@ -71,6 +70,7 @@ class MainActivity : ComponentActivity() {
                                     user = authUiState.user,
                                     conversations = conversationUiState.conversations,
                                     currentConversationId = chatUiState.currentConversationId,
+                                    premiumStatus = premiumStatus,
                                     isLoading = conversationUiState.isLoading,
                                     onConversationClick = { conversationId ->
                                         chatViewModel.loadChats(conversationId)

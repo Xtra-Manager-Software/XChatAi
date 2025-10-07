@@ -48,7 +48,6 @@ class ChatRepository(context: Context) {
     private val MAX_HISTORY_MESSAGES = 15
 
     companion object {
-        private const val MAX_REQUESTS = 20
         private const val TIME_WINDOW_MS = 30 * 60 * 1000L // 30 menit
     }
 
@@ -88,8 +87,14 @@ class ChatRepository(context: Context) {
         chatDao.deleteChatsInConversation(conversationId)
     }
 
-    suspend fun checkServerRateLimit(userId: String): Pair<Boolean, String> =
+    suspend fun checkServerRateLimit(userId: String, maxRequests: Int = 20): Pair<Boolean, String> =
         withContext(Dispatchers.IO) {
+            // If unlimited, always allow
+            if (maxRequests == Int.MAX_VALUE) {
+                Log.d("ChatRepository", "Unlimited requests - allowed")
+                return@withContext Pair(true, "")
+            }
+
             suspendCoroutine { continuation ->
                 val rateLimitRef = firebaseDb.getReference("rate_limits/$userId")
 
@@ -103,29 +108,26 @@ class ChatRepository(context: Context) {
                         Log.d("ChatRepository", "Transaction - Current time: $currentTime")
                         Log.d("ChatRepository", "Transaction - Window start: ${data.windowStart}")
                         Log.d("ChatRepository", "Transaction - Count: ${data.count}")
+                        Log.d("ChatRepository", "Transaction - Max requests: $maxRequests")
 
-                        // Check if this is first request or window expired
                         val isFirstRequest = data.windowStart == 0L || data.count == 0
                         val timeDiff = currentTime - data.windowStart
                         val isExpired = timeDiff > TIME_WINDOW_MS && data.windowStart != 0L
 
                         if (isFirstRequest || isExpired) {
-                            // Reset window - ini request pertama di window baru
                             Log.d("ChatRepository", "Starting new window")
-                            data.count = 1  // Set ke 1, bukan 0!
+                            data.count = 1
                             data.windowStart = currentTime
                             data.lastRequest = currentTime
                             currentData.value = data
                             return Transaction.success(currentData)
                         }
 
-                        // Check if limit exceeded
-                        if (data.count >= MAX_REQUESTS) {
-                            Log.d("ChatRepository", "Limit exceeded: ${data.count}/$MAX_REQUESTS")
+                        if (data.count >= maxRequests) {
+                            Log.d("ChatRepository", "Limit exceeded: ${data.count}/$maxRequests")
                             return Transaction.abort()
                         }
 
-                        // Increment count
                         data.count += 1
                         data.lastRequest = currentTime
                         currentData.value = data
@@ -169,21 +171,26 @@ class ChatRepository(context: Context) {
             }
         }
 
-    suspend fun getServerRemainingRequests(userId: String): Int = withContext(Dispatchers.IO) {
+    suspend fun getServerRemainingRequests(userId: String, maxRequests: Int = 20): Int = withContext(Dispatchers.IO) {
         try {
+            // If unlimited, return max value
+            if (maxRequests == Int.MAX_VALUE) {
+                return@withContext Int.MAX_VALUE
+            }
+
             val snapshot = firebaseDb.getReference("rate_limits/$userId")
                 .get()
                 .await()
 
             if (!snapshot.exists()) {
-                Log.d("ChatRepository", "No rate limit data exists, returning 20")
-                return@withContext MAX_REQUESTS
+                Log.d("ChatRepository", "No rate limit data exists, returning $maxRequests")
+                return@withContext maxRequests
             }
 
             val data = snapshot.getValue(RateLimitData::class.java)
             if (data == null) {
-                Log.d("ChatRepository", "Failed to parse rate limit data, returning 20")
-                return@withContext MAX_REQUESTS
+                Log.d("ChatRepository", "Failed to parse rate limit data, returning $maxRequests")
+                return@withContext maxRequests
             }
 
             val currentTime = System.currentTimeMillis()
@@ -194,31 +201,32 @@ class ChatRepository(context: Context) {
             Log.d("ChatRepository", "Window start: ${data.windowStart}")
             Log.d("ChatRepository", "Time diff: $timeDiff ms (${timeDiff/1000}s)")
             Log.d("ChatRepository", "Count: ${data.count}")
+            Log.d("ChatRepository", "Max requests: $maxRequests")
 
-            // Check if window expired OR invalid timestamp
             if (timeDiff > TIME_WINDOW_MS || data.windowStart == 0L || data.windowStart > currentTime) {
-                Log.d("ChatRepository", "Window expired/invalid, returning 20")
-                return@withContext MAX_REQUESTS
+                Log.d("ChatRepository", "Window expired/invalid, returning $maxRequests")
+                return@withContext maxRequests
             }
 
-            val remaining = (MAX_REQUESTS - data.count).coerceAtLeast(0)
+            val remaining = (maxRequests - data.count).coerceAtLeast(0)
             Log.d("ChatRepository", "Remaining requests: $remaining")
 
             return@withContext remaining
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error getting remaining: ${e.message}")
             e.printStackTrace()
-            return@withContext MAX_REQUESTS
+            return@withContext maxRequests
         }
     }
 
     suspend fun sendMessageToGroq(
         conversationId: Long,
         userMessage: String,
-        userId: String
+        userId: String,
+        maxRequests: Int = 20
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val (canProceed, errorMessage) = checkServerRateLimit(userId)
+            val (canProceed, errorMessage) = checkServerRateLimit(userId, maxRequests)
             if (!canProceed) {
                 return@withContext Result.failure(Exception(errorMessage))
             }
