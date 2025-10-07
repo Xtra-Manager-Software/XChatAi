@@ -8,7 +8,9 @@ import id.xms.xcai.data.local.ConversationEntity
 import id.xms.xcai.data.remote.GroqApiService
 import id.xms.xcai.data.remote.GroqChatRequest
 import id.xms.xcai.data.remote.Message
+import id.xms.xcai.data.preferences.UserPreferencesManager
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,6 +22,7 @@ class ChatRepository(context: Context) {
     private val conversationDao = database.conversationDao()
     private val groqApi = GroqApiService.create()
     private val firebaseDb = FirebaseDatabase.getInstance()
+    private val preferencesManager = UserPreferencesManager(context)
 
     // Conversation operations
     fun getConversationsByUser(userId: String): Flow<List<ConversationEntity>> {
@@ -59,7 +62,7 @@ class ChatRepository(context: Context) {
         chatDao.deleteChatsInConversation(conversationId)
     }
 
-    // Groq API call
+    // Groq API call with selected model from preferences
     suspend fun sendMessageToGroq(
         conversationId: Long,
         userMessage: String
@@ -68,11 +71,24 @@ class ChatRepository(context: Context) {
             // Get API key from Firebase
             val apiKey = getApiKeyFromFirebase()
 
+            // Get selected model from preferences
+            val selectedModelId = preferencesManager.selectedModelId.first()
+
             // Get conversation history
             val history = chatDao.getChatsByConversationSync(conversationId)
 
-            // Build messages list
+            // Build messages list with conversation history
             val messages = mutableListOf<Message>()
+
+            // Add system message (optional, for better context)
+            messages.add(
+                Message(
+                    role = "system",
+                    content = "You are a helpful AI assistant. Provide clear, accurate, and concise responses."
+                )
+            )
+
+            // Add conversation history
             history.forEach { chat ->
                 messages.add(
                     Message(
@@ -81,10 +97,18 @@ class ChatRepository(context: Context) {
                     )
                 )
             }
+
+            // Add current user message
             messages.add(Message(role = "user", content = userMessage))
 
-            // Make API call
-            val request = GroqChatRequest(messages = messages)
+            // Make API call with selected model
+            val request = GroqChatRequest(
+                model = selectedModelId,
+                messages = messages,
+                temperature = 0.7,
+                maxTokens = 2048
+            )
+
             val response = groqApi.sendMessage(
                 authorization = "Bearer $apiKey",
                 request = request
@@ -104,13 +128,19 @@ class ChatRepository(context: Context) {
             val snapshot = firebaseDb.getReference("config/groq_api_key")
                 .get()
                 .await()
-            snapshot.getValue(String::class.java) ?: throw Exception("API key not found")
+            snapshot.getValue(String::class.java)
+                ?: throw Exception("API key not found in Firebase")
         } catch (e: Exception) {
             throw Exception("Failed to get API key: ${e.message}")
         }
     }
 
-    // Backup and restore
+    // Get current selected model (useful for displaying in UI)
+    suspend fun getSelectedModel(): String {
+        return preferencesManager.selectedModelId.first()
+    }
+
+    // Backup and restore operations
     suspend fun getAllConversations(): List<ConversationEntity> {
         return conversationDao.getAllConversations()
     }
@@ -119,7 +149,10 @@ class ChatRepository(context: Context) {
         return chatDao.getAllChats()
     }
 
-    suspend fun restoreData(conversations: List<ConversationEntity>, chats: List<ChatEntity>) {
+    suspend fun restoreData(
+        conversations: List<ConversationEntity>,
+        chats: List<ChatEntity>
+    ) {
         withContext(Dispatchers.IO) {
             conversations.forEach { conversation ->
                 conversationDao.insertConversation(conversation)
@@ -127,6 +160,13 @@ class ChatRepository(context: Context) {
             chats.forEach { chat ->
                 chatDao.insertChat(chat)
             }
+        }
+    }
+
+    // Clear all conversations for a user
+    suspend fun deleteAllConversationsByUser(userId: String) {
+        withContext(Dispatchers.IO) {
+            conversationDao.deleteAllConversationsByUser(userId)
         }
     }
 }

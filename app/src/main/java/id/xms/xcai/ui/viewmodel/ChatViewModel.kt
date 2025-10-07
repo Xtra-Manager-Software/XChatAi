@@ -66,6 +66,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 userId = userId,
                 title = firstMessage.take(50)
             )
+            // FIX: Langsung load conversation yang baru dibuat
             loadChats(conversationId)
         }
     }
@@ -82,7 +83,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     userId = userId,
                     title = message.take(50)
                 )
+                // FIX: Set conversation ID immediately and start observing
                 _chatUiState.value = _chatUiState.value.copy(currentConversationId = conversationId)
+                loadChats(conversationId)
             }
 
             // Insert user message
