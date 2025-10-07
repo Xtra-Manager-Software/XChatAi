@@ -1,7 +1,4 @@
-# XChatAi - AI-Powered Chat Application
-
-<div align="center">
-
+## XChatAi - AI-Powered Chat Application
 ![XChatAi Logo](https://img.shields.io/badge/XChatAi-v1.0.0-blue)
 ![Android](https://img.shields.io/badge/Platform-Android-green)
 ![Kotlin](https://img.shields.io/badge/Language-Kotlin-purple)
@@ -11,7 +8,7 @@
 
 ## 📱 Overview
 
-XChatAi is a modern Android application that provides seamless interaction with advanced AI models (DeepSeek R1 and Llama) through an intuitive and beautiful interface. Built with Jetpack Compose and following Material Design 3 guidelines, it offers a ChatGPT-like experience with unique features including real-time typewriter effects, thinking process visualization, and comprehensive conversation management.
+XChatAi is a modern Android application that provides seamless interaction with advanced AI models through an intuitive and beautiful interface. Built with Jetpack Compose and following Material Design 3 guidelines, it offers a ChatGPT-like experience with unique features including real-time typewriter effects, thinking process visualization, and comprehensive conversation management.
 
 ### 🎯 Key Highlights
 
@@ -200,13 +197,10 @@ If you find this project helpful, please give it a ⭐️!
 Feel free to share feedback or report issues via GitHub Discussions or Issues.
 ---
 
-<div align="center">
-
 **Built with ❤️ using Kotlin and Jetpack Compose**
-
 [![Made with Kotlin](https://img.shields.io/badge/Made%20with-Kotlin-0095D5?style=for-the-badge&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpack-compose&logoColor=white)](https://developer.android.com/jetpack/compose)
 
-</div>
+
 
 
