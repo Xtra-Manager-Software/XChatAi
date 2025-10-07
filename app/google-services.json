@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1023109162505",
+    "firebase_url": "https://xchatai-db9f5-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "xchatai-db9f5",
+    "storage_bucket": "xchatai-db9f5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1023109162505:android:44e43b8cc1646a81817ad8",
+        "android_client_info": {
+          "package_name": "id.xms.xcai"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1023109162505-833lpsrsj40fqgn5u9sp8947vjt0s3ha.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "id.xms.xcai",
+            "certificate_hash": "4db901f2ec1afe76217259e2020cbbeda7f7a65a"
+          }
+        },
+        {
+          "client_id": "1023109162505-jbbf9sdkb7njiunc459oc8fl3ffoc14u.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDcL6PKlI4kW9DV7lU1y0dUEfAziMC2GQ8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1023109162505-jbbf9sdkb7njiunc459oc8fl3ffoc14u.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
