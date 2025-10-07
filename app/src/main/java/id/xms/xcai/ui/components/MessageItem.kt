@@ -3,7 +3,6 @@ package id.xms.xcai.ui.components
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -44,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -63,16 +63,15 @@ data class ParsedMessage(
 sealed class MessageContent {
     data class Text(val text: String) : MessageContent()
     data class CodeBlock(val code: String, val language: String) : MessageContent()
+    data class Heading(val text: String, val level: Int) : MessageContent()
+    data class BulletList(val items: List<String>) : MessageContent()
 }
 
-// Parse message dengan line-by-line detection untuk handle literal ```
 fun parseMessageContent(message: String): ParsedMessage {
-    // Parse thinking section
     val thinkPattern = """<think>(.*?)</think>""".toRegex(RegexOption.DOT_MATCHES_ALL)
     val thinkMatch = thinkPattern.find(message)
     val thinking = thinkMatch?.groupValues?.getOrNull(1)?.trim()
 
-    // Remove thinking part
     val cleanMessage = if (thinking != null) {
         message.replace(thinkPattern, "").trim()
     } else {
@@ -87,114 +86,164 @@ fun parseMessageContent(message: String): ParsedMessage {
     var codeLanguage = ""
     val codeBuffer = mutableListOf<String>()
 
-    Log.d("MessageParse", "Parsing ${lines.size} lines")
-
     while (i < lines.size) {
         val line = lines[i]
         val trimmedLine = line.trim()
 
-        // Check if line is code block delimiter (``` or ```
-        if (trimmedLine.startsWith("```")) {
-            if (!inCodeBlock) {
-                // Start of code block
-                Log.d("MessageParse", "Code block START at line $i")
-
-                // Add accumulated text
-                if (textBuffer.isNotEmpty()) {
-                    val text = textBuffer.joinToString("\n").trim()
-                    if (text.isNotEmpty()) {
-                        content.addAll(parseTextWithInlineCode(text))
+        when {
+            trimmedLine.startsWith("```") -> {
+                if (!inCodeBlock) {
+                    if (textBuffer.isNotEmpty()) {
+                        content.addAll(parseTextWithMarkdown(textBuffer.joinToString("\n")))
+                        textBuffer.clear()
                     }
-                    textBuffer.clear()
+                    inCodeBlock = true
+                    codeLanguage = trimmedLine.removePrefix("```").trim()
+                    if (codeLanguage.isEmpty()) {
+                        codeLanguage = "plaintext"
+                    }
+                } else {
+                    inCodeBlock = false
+                    val code = codeBuffer.joinToString("\n").trim()
+                    if (code.isNotEmpty()) {
+                        content.add(MessageContent.CodeBlock(code, codeLanguage))
+                    }
+                    codeBuffer.clear()
+                    codeLanguage = ""
                 }
-
-                inCodeBlock = true
-                // Extract language (everything after ```
-                codeLanguage = trimmedLine.removePrefix("```").trim()
-                if (codeLanguage.isEmpty()) {
-                    codeLanguage = "plaintext"
-                }
-                Log.d("MessageParse", "Language: $codeLanguage")
-            } else {
-                // End of code block
-                Log.d("MessageParse", "Code block END at line $i")
-                inCodeBlock = false
-
-                val code = codeBuffer.joinToString("\n").trim()
-                if (code.isNotEmpty()) {
-                    Log.d("MessageParse", "Adding code block: ${code.lines().size} lines")
-                    content.add(MessageContent.CodeBlock(code, codeLanguage))
-                }
-
-                codeBuffer.clear()
-                codeLanguage = ""
             }
-        } else {
-            // Regular line
-            if (inCodeBlock) {
-                codeBuffer.add(line)
-            } else {
-                textBuffer.add(line)
+            else -> {
+                if (inCodeBlock) {
+                    codeBuffer.add(line)
+                } else {
+                    textBuffer.add(line)
+                }
             }
         }
-
         i++
     }
 
-    // Handle remaining content
     if (textBuffer.isNotEmpty()) {
-        val text = textBuffer.joinToString("\n").trim()
-        if (text.isNotEmpty()) {
-            content.addAll(parseTextWithInlineCode(text))
-        }
+        content.addAll(parseTextWithMarkdown(textBuffer.joinToString("\n")))
     }
 
-    // Handle unclosed code block
     if (inCodeBlock && codeBuffer.isNotEmpty()) {
-        val code = codeBuffer.joinToString("\n").trim()
-        Log.d("MessageParse", "Unclosed code block, adding anyway")
-        content.add(MessageContent.CodeBlock(code, codeLanguage))
+        content.add(MessageContent.CodeBlock(codeBuffer.joinToString("\n").trim(), codeLanguage))
     }
 
-    // If no content parsed, treat entire message as text
     if (content.isEmpty()) {
         content.add(MessageContent.Text(cleanMessage))
-    }
-
-    Log.d("MessageParse", "Final content items: ${content.size}")
-    content.forEachIndexed { index, item ->
-        when (item) {
-            is MessageContent.Text -> Log.d("MessageParse", "[$index] Text: ${item.text.take(50)}")
-            is MessageContent.CodeBlock -> Log.d("MessageParse", "[$index] Code: ${item.language}, ${item.code.lines().size} lines")
-        }
     }
 
     return ParsedMessage(thinking, content)
 }
 
-// Parse text dengan inline code support
-fun parseTextWithInlineCode(text: String): List<MessageContent> {
+fun parseTextWithMarkdown(text: String): List<MessageContent> {
+    val result = mutableListOf<MessageContent>()
+    val lines = text.lines()
+    var i = 0
+    val textBuffer = mutableListOf<String>()
+    val listBuffer = mutableListOf<String>()
+
+    while (i < lines.size) {
+        val line = lines[i]
+        val trimmedLine = line.trim()
+
+        when {
+            trimmedLine.matches("""^#{1,3}\s+.+$""".toRegex()) -> {
+                if (textBuffer.isNotEmpty()) {
+                    val bufferedText = textBuffer.joinToString("\n").trim()
+                    if (bufferedText.isNotEmpty()) {
+                        result.addAll(parseInlineFormatting(bufferedText))
+                    }
+                    textBuffer.clear()
+                }
+                if (listBuffer.isNotEmpty()) {
+                    result.add(MessageContent.BulletList(listBuffer.toList()))
+                    listBuffer.clear()
+                }
+                val level = trimmedLine.takeWhile { it == '#' }.length
+                val headingText = trimmedLine.dropWhile { it == '#' }.trim()
+                result.add(MessageContent.Heading(headingText, level))
+            }
+
+            trimmedLine.startsWith("- ") || trimmedLine.startsWith("* ") -> {
+                if (textBuffer.isNotEmpty()) {
+                    val bufferedText = textBuffer.joinToString("\n").trim()
+                    if (bufferedText.isNotEmpty()) {
+                        result.addAll(parseInlineFormatting(bufferedText))
+                    }
+                    textBuffer.clear()
+                }
+                val itemText = trimmedLine.removePrefix("- ").removePrefix("* ")
+                listBuffer.add(itemText)
+            }
+
+            trimmedLine.matches("""^\d+\.\s+.+""".toRegex()) -> {
+                if (textBuffer.isNotEmpty()) {
+                    val bufferedText = textBuffer.joinToString("\n").trim()
+                    if (bufferedText.isNotEmpty()) {
+                        result.addAll(parseInlineFormatting(bufferedText))
+                    }
+                    textBuffer.clear()
+                }
+                val itemText = trimmedLine.replaceFirst("""^\d+\.\s+""".toRegex(), "")
+                listBuffer.add(itemText)
+            }
+
+            trimmedLine.isEmpty() -> {
+                if (listBuffer.isNotEmpty()) {
+                    result.add(MessageContent.BulletList(listBuffer.toList()))
+                    listBuffer.clear()
+                }
+                if (textBuffer.isNotEmpty() && textBuffer.last().isNotEmpty()) {
+                    textBuffer.add("")
+                }
+            }
+
+            else -> {
+                if (listBuffer.isNotEmpty()) {
+                    result.add(MessageContent.BulletList(listBuffer.toList()))
+                    listBuffer.clear()
+                }
+                textBuffer.add(line)
+            }
+        }
+        i++
+    }
+
+    if (listBuffer.isNotEmpty()) {
+        result.add(MessageContent.BulletList(listBuffer.toList()))
+    }
+
+    if (textBuffer.isNotEmpty()) {
+        val bufferedText = textBuffer.joinToString("\n").trim()
+        if (bufferedText.isNotEmpty()) {
+            result.addAll(parseInlineFormatting(bufferedText))
+        }
+    }
+
+    return result
+}
+
+fun parseInlineFormatting(text: String): List<MessageContent> {
     val result = mutableListOf<MessageContent>()
     val inlineCodePattern = """`([^`\n]+)`""".toRegex()
     var lastIndex = 0
 
-    inlineCodePattern.findAll(text).forEach { match ->
-        // Add text before inline code
+    val matches = inlineCodePattern.findAll(text).toList()
+
+    matches.forEach { match ->
         if (match.range.first > lastIndex) {
             val textBefore = text.substring(lastIndex, match.range.first)
             if (textBefore.isNotEmpty()) {
                 result.add(MessageContent.Text(textBefore))
             }
         }
-
-        // Add inline code
-        val inlineCode = match.groupValues[1]
-        result.add(MessageContent.CodeBlock(inlineCode, "inline"))
-
+        result.add(MessageContent.CodeBlock(match.groupValues[1], "inline"))
         lastIndex = match.range.last + 1
     }
 
-    // Add remaining text
     if (lastIndex < text.length) {
         val remaining = text.substring(lastIndex)
         if (remaining.isNotEmpty()) {
@@ -202,7 +251,6 @@ fun parseTextWithInlineCode(text: String): List<MessageContent> {
         }
     }
 
-    // If no inline code found, return as text
     if (result.isEmpty() && text.isNotEmpty()) {
         result.add(MessageContent.Text(text))
     }
@@ -228,7 +276,6 @@ fun MessageItem(
         val parsed = remember(message.message) {
             parseMessageContent(message.message)
         }
-
         AIMessageWithContent(
             thinking = parsed.thinking,
             content = parsed.content,
@@ -255,12 +302,7 @@ private fun UserMessageBubble(
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
             Surface(
-                shape = RoundedCornerShape(
-                    topStart = 20.dp,
-                    topEnd = 20.dp,
-                    bottomStart = 20.dp,
-                    bottomEnd = 4.dp
-                ),
+                shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 4.dp),
                 color = MaterialTheme.colorScheme.primaryContainer,
                 tonalElevation = 1.dp
             ) {
@@ -268,15 +310,10 @@ private fun UserMessageBubble(
                     text = message,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(
-                        horizontal = 16.dp,
-                        vertical = 10.dp
-                    )
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
                 )
             }
-
             Spacer(modifier = Modifier.size(4.dp))
-
             Text(
                 text = time,
                 style = MaterialTheme.typography.labelSmall,
@@ -302,7 +339,6 @@ private fun AIMessageWithContent(
         horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.Top
     ) {
-        // AI Avatar
         Box(
             modifier = Modifier
                 .size(32.dp)
@@ -320,9 +356,7 @@ private fun AIMessageWithContent(
 
         Spacer(modifier = Modifier.size(12.dp))
 
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "XChatAi",
                 style = MaterialTheme.typography.labelMedium,
@@ -332,41 +366,39 @@ private fun AIMessageWithContent(
 
             Spacer(modifier = Modifier.size(8.dp))
 
-            // Thinking Section
             if (thinking != null) {
                 ThinkingSection(
                     thinking = thinking,
                     isExpanded = isThinkingExpanded,
                     onToggle = { isThinkingExpanded = !isThinkingExpanded }
                 )
-
                 Spacer(modifier = Modifier.size(12.dp))
             }
 
-            // Render content
             content.forEach { item ->
                 when (item) {
                     is MessageContent.Text -> {
                         Text(
-                            text = item.text,
+                            text = parseStyledText(item.text),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface,
                             lineHeight = MaterialTheme.typography.bodyLarge.lineHeight.times(1.5f),
                             modifier = Modifier.padding(vertical = 2.dp)
                         )
                     }
-
+                    is MessageContent.Heading -> {
+                        Spacer(modifier = Modifier.size(4.dp))
+                        HeadingText(text = item.text, level = item.level)
+                    }
+                    is MessageContent.BulletList -> {
+                        BulletListText(items = item.items)
+                    }
                     is MessageContent.CodeBlock -> {
                         if (item.language == "inline") {
-                            // Inline code
                             InlineCodeText(code = item.code)
                         } else {
-                            // Code block - always visible
                             Spacer(modifier = Modifier.size(8.dp))
-                            CodeBlockCard(
-                                code = item.code,
-                                language = item.language
-                            )
+                            CodeBlockCard(code = item.code, language = item.language)
                             Spacer(modifier = Modifier.size(8.dp))
                         }
                     }
@@ -385,6 +417,77 @@ private fun AIMessageWithContent(
 }
 
 @Composable
+private fun HeadingText(
+    text: String,
+    level: Int,
+    modifier: Modifier = Modifier
+) {
+    val style = when (level) {
+        1 -> MaterialTheme.typography.headlineMedium
+        2 -> MaterialTheme.typography.titleLarge
+        else -> MaterialTheme.typography.titleMedium
+    }
+
+    Text(
+        text = parseStyledText(text),
+        style = style,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier.padding(vertical = 6.dp)
+    )
+}
+
+@Composable
+private fun BulletListText(
+    items: List<String>,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(vertical = 4.dp)) {
+        items.forEach { item ->
+            Row(
+                modifier = Modifier.padding(vertical = 2.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(
+                    text = "•  ",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = parseStyledText(item),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    lineHeight = MaterialTheme.typography.bodyLarge.lineHeight.times(1.5f),
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun parseStyledText(text: String): AnnotatedString {
+    return buildAnnotatedString {
+        val boldRegex = """\*\*(.+?)\*\*""".toRegex()
+        var lastEnd = 0
+
+        boldRegex.findAll(text).forEach { match ->
+            if (match.range.first > lastEnd) {
+                append(text.substring(lastEnd, match.range.first))
+            }
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                append(match.groupValues[1])
+            }
+            lastEnd = match.range.last + 1
+        }
+
+        if (lastEnd < text.length) {
+            append(text.substring(lastEnd))
+        }
+    }
+}
+
+@Composable
 private fun CodeBlockCard(
     code: String,
     language: String,
@@ -395,43 +498,30 @@ private fun CodeBlockCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
-        tonalElevation = 0.dp
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp)
-        ) {
-            // Header
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f)
-                    ) {
-                        Text(
-                            text = "📄",
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-
+                    Text(
+                        text = "📄",
+                        style = MaterialTheme.typography.labelMedium
+                    )
                     Text(
                         text = language,
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.secondary
                     )
-
-                    val lineCount = code.lines().size
                     Text(
-                        text = "($lineCount lines)",
+                        text = "(${code.lines().size} lines)",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
@@ -439,29 +529,25 @@ private fun CodeBlockCard(
 
                 IconButton(
                     onClick = {
-                        copyToClipboard(context, code)
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Code", code))
                         Toast.makeText(context, "Code copied!", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Copy code",
-                        tint = MaterialTheme.colorScheme.secondary,
-                        modifier = Modifier.size(16.dp)
+                        contentDescription = "Copy",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.secondary
                     )
                 }
             }
 
             Spacer(modifier = Modifier.size(8.dp))
-
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-            )
-
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
             Spacer(modifier = Modifier.size(12.dp))
 
-            // Code content
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -470,8 +556,7 @@ private fun CodeBlockCard(
                 Text(
                     text = code,
                     style = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = FontFamily.Monospace,
-                        lineHeight = MaterialTheme.typography.bodyMedium.lineHeight.times(1.6f)
+                        fontFamily = FontFamily.Monospace
                     ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(4.dp)
@@ -489,7 +574,7 @@ private fun InlineCodeText(
     Text(
         text = buildAnnotatedString {
             withStyle(
-                style = SpanStyle(
+                SpanStyle(
                     fontFamily = FontFamily.Monospace,
                     background = MaterialTheme.colorScheme.surfaceVariant,
                     color = MaterialTheme.colorScheme.primary
@@ -515,12 +600,9 @@ private fun ThinkingSection(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        tonalElevation = 0.dp
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp)
-        ) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -529,50 +611,40 @@ private fun ThinkingSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    ) {
-                        Text(
-                            text = "🧠",
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-
+                    Text(
+                        text = "🧠",
+                        style = MaterialTheme.typography.labelMedium
+                    )
                     Text(
                         text = "Thought process",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.primary
                     )
-
-                    val wordCount = thinking.split("\\s+".toRegex()).size
                     Text(
-                        text = "($wordCount words)",
+                        text = "(${thinking.split("\\s+".toRegex()).size} words)",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(
                         onClick = {
-                            copyToClipboard(context, thinking)
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Thinking", thinking))
                             Toast.makeText(context, "Thinking copied!", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
-                            contentDescription = "Copy thinking",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
+                            contentDescription = "Copy",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
 
@@ -596,16 +668,13 @@ private fun ThinkingSection(
             ) {
                 Column {
                     Spacer(modifier = Modifier.size(8.dp))
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
                     Spacer(modifier = Modifier.size(12.dp))
 
                     Text(
                         text = thinking,
                         style = MaterialTheme.typography.bodyMedium.copy(
-                            fontFamily = FontFamily.Monospace,
-                            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight.times(1.5f)
+                            fontFamily = FontFamily.Monospace
                         ),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(4.dp)
@@ -614,10 +683,4 @@ private fun ThinkingSection(
             }
         }
     }
-}
-
-private fun copyToClipboard(context: Context, text: String) {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    val clip = ClipData.newPlainText("Copied Text", text)
-    clipboard.setPrimaryClip(clip)
 }
