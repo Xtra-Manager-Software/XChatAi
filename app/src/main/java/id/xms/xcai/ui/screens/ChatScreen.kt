@@ -57,7 +57,9 @@ import id.xms.xcai.ui.components.MessageItem
 import id.xms.xcai.ui.components.StreamingMessageItem
 import id.xms.xcai.ui.viewmodel.AuthViewModel
 import id.xms.xcai.ui.viewmodel.ChatViewModel
-import kotlinx.coroutines.launch
+import androidx.compose.runtime.derivedStateOf
+import kotlinx.coroutines.delay
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,14 +100,24 @@ fun ChatScreen(
         }
     }
 
-    // Auto scroll to bottom when new messages arrive or typing
-    LaunchedEffect(chatUiState.messages.size, chatUiState.isLoading) {
-        if (chatUiState.messages.isNotEmpty()) {
-            scope.launch {
-                listState.animateScrollToItem(
-                    if (chatUiState.isLoading) chatUiState.messages.size else chatUiState.messages.size - 1
-                )
-            }
+    val shouldScrollToBottom = remember {
+        derivedStateOf {
+            chatUiState.messages.size
+        }
+    }
+
+    LaunchedEffect(shouldScrollToBottom.value) {
+        if (chatUiState.messages.isNotEmpty() && !chatUiState.isStreaming) {
+            delay(100)
+            listState.animateScrollToItem(chatUiState.messages.size - 1)
+        }
+    }
+
+    // Auto scroll during streaming (setiap character)
+    LaunchedEffect(chatUiState.streamingText) {
+        if (chatUiState.isStreaming && chatUiState.streamingText.isNotEmpty()) {
+            val targetIndex = if (chatUiState.messages.isEmpty()) 0 else chatUiState.messages.size
+            listState.animateScrollToItem(targetIndex)
         }
     }
 
