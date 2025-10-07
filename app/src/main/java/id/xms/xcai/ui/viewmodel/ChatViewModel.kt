@@ -25,7 +25,10 @@ data class ChatUiState(
     val error: String? = null,
     val currentConversationId: Long? = null,
     val remainingRequests: Int = 20,
-    val isLoadingCounter: Boolean = false
+    val isLoadingCounter: Boolean = false,
+    val streamingText: String = "",
+    val isStreaming: Boolean = false,
+    val isThinking: Boolean = false
 )
 
 data class ConversationUiState(
@@ -49,15 +52,13 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var pollingJob: Job? = null
     private var isUserTyping = false
     private var chatCollectionJob: Job? = null
+    private var streamingJob: Job? = null
 
     fun setupRateLimitListener(userId: String) {
-        Log.d("ChatViewModel", "=== SETUP LISTENER ===")
         currentUserId = userId
-
         rateLimitListener?.let {
             firebaseDb.getReference("rate_limits/$userId").removeEventListener(it)
         }
-
         pollingJob?.cancel()
 
         val rateLimitRef = firebaseDb.getReference("rate_limits/$userId")
@@ -105,9 +106,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             delay(5000)
             while(isActive) {
                 try {
-                    if (!isUserTyping) {
-                        loadRemainingRequests(userId)
-                    }
+                    if (!isUserTyping) loadRemainingRequests(userId)
                     delay(10000)
                 } catch (e: Exception) {
                     Log.e("ChatViewModel", "Polling error: ${e.message}")
@@ -134,7 +133,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     isLoadingCounter = false
                 )
             } catch (e: Exception) {
-                Log.e("ChatViewModel", "Error loading rate limit: ${e.message}")
                 _chatUiState.value = _chatUiState.value.copy(
                     remainingRequests = 20,
                     isLoadingCounter = false
@@ -157,12 +155,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun loadChats(conversationId: Long) {
-        Log.d("ChatViewModel", "=== LOAD CHATS ===")
-        Log.d("ChatViewModel", "Loading conversation: $conversationId")
-
-        // Cancel previous flow collection
         chatCollectionJob?.cancel()
-
         chatCollectionJob = viewModelScope.launch {
             _chatUiState.value = _chatUiState.value.copy(
                 currentConversationId = conversationId,
@@ -171,17 +164,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
             try {
                 repository.getChatsByConversation(conversationId).collect { chats ->
-                    // Only update if we're still on the same conversation
                     if (_chatUiState.value.currentConversationId == conversationId) {
                         _chatUiState.value = _chatUiState.value.copy(
                             messages = chats,
                             isLoading = false
                         )
-                        Log.d("ChatViewModel", "Messages loaded: ${chats.size}")
                     }
                 }
             } catch (e: Exception) {
-                Log.e("ChatViewModel", "Error loading chats: ${e.message}")
                 _chatUiState.value = _chatUiState.value.copy(isLoading = false)
             }
         }
@@ -189,23 +179,19 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendMessage(userId: String, message: String) {
         viewModelScope.launch {
-            Log.d("ChatViewModel", "=== SEND MESSAGE ===")
-            Log.d("ChatViewModel", "Message: $message")
-            Log.d("ChatViewModel", "Current conversation: ${_chatUiState.value.currentConversationId}")
-
-            _chatUiState.value = _chatUiState.value.copy(isLoading = true, error = null)
+            _chatUiState.value = _chatUiState.value.copy(
+                isLoading = true,
+                error = null,
+                isThinking = false
+            )
 
             var conversationId = _chatUiState.value.currentConversationId
 
             if (conversationId == null) {
-                Log.d("ChatViewModel", "Creating new conversation...")
                 conversationId = repository.createConversation(
                     userId = userId,
                     title = message.take(50)
                 )
-                Log.d("ChatViewModel", "New conversation created: $conversationId")
-
-                // Set conversation ID and start loading
                 _chatUiState.value = _chatUiState.value.copy(currentConversationId = conversationId)
                 loadChats(conversationId)
             }
@@ -219,37 +205,79 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 )
             )
 
+            // Show thinking
+            _chatUiState.value = _chatUiState.value.copy(isThinking = true)
+
             // Call API
             val result = repository.sendMessageToGroq(conversationId, message, userId)
 
             result.onSuccess { aiResponse ->
-                Log.d("ChatViewModel", "API success, inserting AI response")
+                _chatUiState.value = _chatUiState.value.copy(
+                    isThinking = false,
+                    isLoading = false
+                )
+                startTypewriterEffect(conversationId, aiResponse)
+                loadRemainingRequests(userId)
+            }.onFailure { exception ->
+                _chatUiState.value = _chatUiState.value.copy(
+                    isLoading = false,
+                    isThinking = false,
+                    error = exception.message ?: "Unknown error occurred"
+                )
+                loadRemainingRequests(userId)
+            }
+        }
+    }
+
+    private fun startTypewriterEffect(conversationId: Long, fullText: String) {
+        streamingJob?.cancel()
+
+        streamingJob = viewModelScope.launch {
+            _chatUiState.value = _chatUiState.value.copy(
+                isStreaming = true,
+                streamingText = ""
+            )
+
+            val delayPerChar = 20L
+
+            fullText.forEachIndexed { index, _ ->
+                if (isActive) {
+                    _chatUiState.value = _chatUiState.value.copy(
+                        streamingText = fullText.substring(0, index + 1)
+                    )
+                    delay(delayPerChar)
+                }
+            }
+
+            if (isActive) {
                 repository.insertChat(
                     ChatEntity(
                         conversationId = conversationId,
-                        message = aiResponse,
+                        message = fullText,
                         isUser = false
                     )
                 )
 
-                // Update conversation timestamp
                 repository.getConversationById(conversationId)?.let { conversation ->
                     repository.updateConversation(
                         conversation.copy(updatedAt = System.currentTimeMillis())
                     )
                 }
 
-                _chatUiState.value = _chatUiState.value.copy(isLoading = false)
-                loadRemainingRequests(userId)
-            }.onFailure { exception ->
-                Log.e("ChatViewModel", "API failed: ${exception.message}")
                 _chatUiState.value = _chatUiState.value.copy(
-                    isLoading = false,
-                    error = exception.message ?: "Unknown error occurred"
+                    isStreaming = false,
+                    streamingText = ""
                 )
-                loadRemainingRequests(userId)
             }
         }
+    }
+
+    fun stopStreaming() {
+        streamingJob?.cancel()
+        _chatUiState.value = _chatUiState.value.copy(
+            isStreaming = false,
+            streamingText = ""
+        )
     }
 
     fun deleteConversation(conversation: ConversationEntity) {
@@ -264,7 +292,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun renameConversation(conversation: ConversationEntity, newTitle: String) {
         viewModelScope.launch {
             try {
-                Log.d("ChatViewModel", "Renaming conversation ${conversation.id} to: $newTitle")
                 repository.updateConversation(
                     conversation.copy(
                         title = newTitle.trim(),
@@ -282,26 +309,26 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearCurrentConversation() {
-        Log.d("ChatViewModel", "=== CLEAR CONVERSATION ===")
-
-        // Cancel active flow collection
         chatCollectionJob?.cancel()
         chatCollectionJob = null
+        stopStreaming()
 
         _chatUiState.value = _chatUiState.value.copy(
             messages = emptyList(),
             currentConversationId = null,
             error = null,
-            isLoading = false
+            isLoading = false,
+            isStreaming = false,
+            streamingText = "",
+            isThinking = false
         )
     }
 
     override fun onCleared() {
         super.onCleared()
-        Log.d("ChatViewModel", "=== ON CLEARED ===")
-
         stopPolling()
         chatCollectionJob?.cancel()
+        streamingJob?.cancel()
 
         rateLimitListener?.let { listener ->
             currentUserId?.let { userId ->

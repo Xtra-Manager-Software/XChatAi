@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +51,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.alpha
 import id.xms.xcai.data.local.ChatEntity
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -261,7 +269,9 @@ fun parseInlineFormatting(text: String): List<MessageContent> {
 @Composable
 fun MessageItem(
     message: ChatEntity,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isStreaming: Boolean = false,
+    streamingText: String = ""
 ) {
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     val timeString = timeFormat.format(Date(message.timestamp))
@@ -273,14 +283,16 @@ fun MessageItem(
             modifier = modifier
         )
     } else {
-        val parsed = remember(message.message) {
-            parseMessageContent(message.message)
+        val messageToShow = if (isStreaming) streamingText else message.message
+        val parsed = remember(messageToShow) {
+            parseMessageContent(messageToShow)
         }
         AIMessageWithContent(
             thinking = parsed.thinking,
             content = parsed.content,
             time = timeString,
-            modifier = modifier
+            modifier = modifier,
+            isStreaming = isStreaming
         )
     }
 }
@@ -328,7 +340,8 @@ private fun AIMessageWithContent(
     thinking: String?,
     content: List<MessageContent>,
     time: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isStreaming: Boolean = false
 ) {
     var isThinkingExpanded by remember { mutableStateOf(false) }
 
@@ -366,7 +379,7 @@ private fun AIMessageWithContent(
 
             Spacer(modifier = Modifier.size(8.dp))
 
-            if (thinking != null) {
+            if (thinking != null && !isStreaming) {
                 ThinkingSection(
                     thinking = thinking,
                     isExpanded = isThinkingExpanded,
@@ -398,20 +411,25 @@ private fun AIMessageWithContent(
                             InlineCodeText(code = item.code)
                         } else {
                             Spacer(modifier = Modifier.size(8.dp))
-                            CodeBlockCard(code = item.code, language = item.language)
+                            CodeBlockCard(
+                                isStreaming = isStreaming,
+                                code = item.code,
+                                language = item.language
+                            )
                             Spacer(modifier = Modifier.size(8.dp))
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.size(4.dp))
-
-            Text(
-                text = time,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-            )
+            if (!isStreaming) {
+                Spacer(modifier = Modifier.size(4.dp))
+                Text(
+                    text = time,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
         }
     }
 }
@@ -489,9 +507,10 @@ private fun parseStyledText(text: String): AnnotatedString {
 
 @Composable
 private fun CodeBlockCard(
+    isStreaming: Boolean = false,
+    modifier: Modifier = Modifier,
     code: String,
-    language: String,
-    modifier: Modifier = Modifier
+    language: String
 ) {
     val context = LocalContext.current
 
@@ -527,20 +546,22 @@ private fun CodeBlockCard(
                     )
                 }
 
-                IconButton(
-                    onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Code", code))
-                        Toast.makeText(context, "Code copied!", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ContentCopy,
-                        contentDescription = "Copy",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.secondary
-                    )
+                if (!isStreaming) {
+                    IconButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Code", code))
+                            Toast.makeText(context, "Code copied!", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+                    }
                 }
             }
 
@@ -683,4 +704,245 @@ private fun ThinkingSection(
             }
         }
     }
+}
+
+@Composable
+fun StreamingMessageItem(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.secondaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.SmartToy,
+                contentDescription = "AI",
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.size(12.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "XChatAi",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.size(8.dp))
+
+            // Typewriter text dengan cursor
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    lineHeight = MaterialTheme.typography.bodyLarge.lineHeight.times(1.5f)
+                )
+
+                // Blinking cursor
+                BlinkingCursor()
+            }
+        }
+    }
+}
+
+@Composable
+private fun BlinkingCursor() {
+    val infiniteTransition = rememberInfiniteTransition(label = "cursor")
+
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 530),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "cursor_alpha"
+    )
+
+    Text(
+        text = "▊",
+        style = MaterialTheme.typography.bodyLarge,
+        color = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+        modifier = Modifier.padding(start = 2.dp)
+    )
+}
+
+
+
+@Composable
+fun AITypingIndicator(
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.Top
+    ) {
+        // AI Avatar
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.secondaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.SmartToy,
+                contentDescription = "AI",
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.size(12.dp))
+
+        Column {
+            Text(
+                text = "XChatAi",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.size(8.dp))
+
+            // Typing Bubble
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 1.dp
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    TypingDot(delay = 0)
+                    TypingDot(delay = 150)
+                    TypingDot(delay = 300)
+                }
+            }
+
+            Spacer(modifier = Modifier.size(4.dp))
+
+            Text(
+                text = "typing...",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+    }
+}
+
+@Composable
+fun AIThinkingIndicator(
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.Top
+    ) {
+        // AI Avatar
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.secondaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.SmartToy,
+                contentDescription = "AI",
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.size(12.dp))
+
+        Column {
+            Text(
+                text = "XChatAi",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.size(8.dp))
+
+            // Thinking Bubble
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 1.dp
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "AI is thinking...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TypingDot(
+    modifier: Modifier = Modifier,
+    delay: Int
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "typing_dot")
+
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 600,
+                delayMillis = delay
+            ),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot_alpha"
+    )
+
+    Box(
+        modifier = modifier
+            .size(10.dp)
+            .alpha(alpha)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary)
+    )
 }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Warning
@@ -49,8 +51,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import id.xms.xcai.ui.components.AIThinkingIndicator
+import id.xms.xcai.ui.components.AITypingIndicator
 import id.xms.xcai.ui.components.MessageItem
-import id.xms.xcai.ui.components.ThinkingIndicator
+import id.xms.xcai.ui.components.StreamingMessageItem
 import id.xms.xcai.ui.viewmodel.AuthViewModel
 import id.xms.xcai.ui.viewmodel.ChatViewModel
 import kotlinx.coroutines.launch
@@ -94,10 +98,14 @@ fun ChatScreen(
         }
     }
 
-    // Auto scroll to bottom when new messages arrive
-    LaunchedEffect(chatUiState.messages.size) {
+    // Auto scroll to bottom when new messages arrive or typing
+    LaunchedEffect(chatUiState.messages.size, chatUiState.isLoading) {
         if (chatUiState.messages.isNotEmpty()) {
-            listState.animateScrollToItem(chatUiState.messages.size - 1)
+            scope.launch {
+                listState.animateScrollToItem(
+                    if (chatUiState.isLoading) chatUiState.messages.size else chatUiState.messages.size - 1
+                )
+            }
         }
     }
 
@@ -210,6 +218,7 @@ fun ChatScreen(
                     .fillMaxWidth()
             ) {
                 if (chatUiState.messages.isEmpty() && !chatUiState.isLoading) {
+                    // Empty State
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -217,15 +226,18 @@ fun ChatScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Text(
-                            text = "👋",
-                            style = MaterialTheme.typography.displayLarge
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Chat,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                         )
                         Spacer(modifier = Modifier.size(16.dp))
                         Text(
                             text = "Start a conversation",
                             style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.size(8.dp))
                         Text(
@@ -247,32 +259,60 @@ fun ChatScreen(
                         }
                     }
                 } else {
+                    // Messages with indicators
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = 8.dp)
                     ) {
+                        // ALL existing messages
                         items(
                             items = chatUiState.messages,
                             key = { it.id }
                         ) { message ->
-                            MessageItem(message = message)
+                            MessageItem(
+                                message = message,
+                                modifier = Modifier.animateItem()
+                            )
                         }
 
-                        if (chatUiState.isLoading) {
-                            item {
-                                ThinkingIndicator()
+                        // Streaming message
+                        if (chatUiState.isStreaming && chatUiState.streamingText.isNotEmpty()) {
+                            item(key = "streaming_message") {
+                                StreamingMessageItem(
+                                    text = chatUiState.streamingText,
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
+                        }
+
+                        // Thinking indicator
+                        if (chatUiState.isThinking) {
+                            item(key = "thinking_indicator") {
+                                AIThinkingIndicator(
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
+                        }
+
+                        // Typing indicator
+                        else if (chatUiState.isLoading && !chatUiState.isStreaming && chatUiState.messages.isNotEmpty()) {
+                            item(key = "typing_indicator") {
+                                AITypingIndicator(
+                                    modifier = Modifier.animateItem()
+                                )
                             }
                         }
                     }
                 }
             }
-
             // Input Field Container
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
             ) {
+                // Low quota warning banner
                 if (chatUiState.remainingRequests <= 5 && chatUiState.remainingRequests > 0 && !chatUiState.isLoadingCounter) {
                     Row(
                         modifier = Modifier
@@ -296,6 +336,7 @@ fun ChatScreen(
                     }
                 }
 
+                // Input Row
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -306,7 +347,6 @@ fun ChatScreen(
                         value = messageText,
                         onValueChange = {
                             messageText = it
-                            // Notify ViewModel about typing state
                             chatViewModel.setUserTyping(it.isNotEmpty())
                         },
                         modifier = Modifier.weight(1f),
@@ -324,7 +364,6 @@ fun ChatScreen(
                                 authUiState.user?.uid?.let { userId ->
                                     chatViewModel.sendMessage(userId, messageText.trim())
                                     messageText = ""
-                                    // Reset typing state after send
                                     chatViewModel.setUserTyping(false)
                                 }
                             } else if (chatUiState.remainingRequests == 0) {
