@@ -1,6 +1,7 @@
 package id.xms.xcai.utils
 
 import android.content.Context
+import android.os.Build
 import android.os.Environment
 import com.google.gson.Gson
 import id.xms.xcai.data.local.ChatEntity
@@ -33,10 +34,17 @@ class BackupManager(private val context: Context) {
                 chats = chats
             )
 
-            val backupDir = File(
-                Environment.getExternalStorageDirectory(),
-                "XChatAi/backup"
-            )
+            // Use app-specific directory instead of external storage
+            val backupDir = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+ use app-specific directory
+                File(context.getExternalFilesDir(null), "backup")
+            } else {
+                // Android 9- use traditional external storage
+                File(
+                    Environment.getExternalStorageDirectory(),
+                    "XChatAi/backup"
+                )
+            }
 
             if (!backupDir.exists()) {
                 backupDir.mkdirs()
@@ -56,10 +64,17 @@ class BackupManager(private val context: Context) {
 
     suspend fun restoreBackup(): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val backupFile = File(
-                Environment.getExternalStorageDirectory(),
-                "XChatAi/backup/xchat_backup.json"
-            )
+            // Use app-specific directory
+            val backupDir = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                File(context.getExternalFilesDir(null), "backup")
+            } else {
+                File(
+                    Environment.getExternalStorageDirectory(),
+                    "XChatAi/backup"
+                )
+            }
+
+            val backupFile = File(backupDir, "xchat_backup.json")
 
             if (!backupFile.exists()) {
                 return@withContext Result.failure(Exception("Backup file not found"))
