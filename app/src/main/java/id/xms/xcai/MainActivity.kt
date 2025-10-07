@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -39,25 +40,35 @@ import androidx.navigation.compose.rememberNavController
 import id.xms.xcai.ui.screens.ChatScreen
 import id.xms.xcai.ui.screens.HistoryScreen
 import id.xms.xcai.ui.screens.LoginScreen
+import id.xms.xcai.ui.screens.SettingsScreen
 import id.xms.xcai.ui.theme.XChatAiTheme
 import id.xms.xcai.ui.viewmodel.AuthViewModel
 import id.xms.xcai.ui.viewmodel.ChatViewModel
+import id.xms.xcai.ui.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
     private val chatViewModel: ChatViewModel by viewModels()
+    private val settingsViewModel: SettingsViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         setContent {
-            XChatAiTheme {
+            val isDarkMode by settingsViewModel.isDarkMode.collectAsState()
+            val isDynamicColorEnabled by settingsViewModel.isDynamicColorEnabled.collectAsState()
+
+            XChatAiTheme(
+                darkTheme = isDarkMode,
+                dynamicColor = isDynamicColorEnabled
+            ) {
                 XChatAiApp(
                     authViewModel = authViewModel,
-                    chatViewModel = chatViewModel
+                    chatViewModel = chatViewModel,
+                    settingsViewModel = settingsViewModel
                 )
             }
         }
@@ -68,7 +79,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun XChatAiApp(
     authViewModel: AuthViewModel,
-    chatViewModel: ChatViewModel
+    chatViewModel: ChatViewModel,
+    settingsViewModel: SettingsViewModel
 ) {
     val authUiState by authViewModel.authUiState.collectAsState()
     val navController = rememberNavController()
@@ -95,6 +107,7 @@ fun XChatAiApp(
                 navController = navController,
                 authViewModel = authViewModel,
                 chatViewModel = chatViewModel,
+                settingsViewModel = settingsViewModel,
                 startDestination = startDestination,
                 onOpenDrawer = {
                     scope.launch { drawerState.open() }
@@ -106,6 +119,7 @@ fun XChatAiApp(
             navController = navController,
             authViewModel = authViewModel,
             chatViewModel = chatViewModel,
+            settingsViewModel = settingsViewModel,
             startDestination = startDestination,
             onOpenDrawer = {}
         )
@@ -173,6 +187,20 @@ fun DrawerContent(
                 )
             )
 
+            // Settings
+            NavigationDrawerItem(
+                icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                label = { Text("Settings") },
+                selected = currentRoute == "settings",
+                onClick = {
+                    navController.navigate("settings")
+                    onCloseDrawer()
+                },
+                colors = NavigationDrawerItemDefaults.colors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            )
+
             Spacer(modifier = Modifier.weight(1f))
 
             HorizontalDivider()
@@ -201,6 +229,7 @@ fun NavigationHost(
     navController: NavHostController,
     authViewModel: AuthViewModel,
     chatViewModel: ChatViewModel,
+    settingsViewModel: SettingsViewModel,
     startDestination: String,
     onOpenDrawer: () -> Unit
 ) {
@@ -238,6 +267,15 @@ fun NavigationHost(
                     navController.popBackStack()
                 },
                 onConversationClick = { conversationId ->
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable("settings") {
+            SettingsScreen(
+                settingsViewModel = settingsViewModel,
+                onNavigateBack = {
                     navController.popBackStack()
                 }
             )
