@@ -550,7 +550,7 @@ val uploadReleaseApkToTelegram by tasks.registering(UploadApkToTelegramTask::cla
     // Daripada mencoba menghubungkan output task secara dinamis,
     // kita secara eksplisit menunjuk ke LOKASI FILE yang kita tahu akan dibuat.
     val versionName = android.defaultConfig.versionName ?: "unknown-version"
-    val outputApkPath = layout.projectDirectory.file("dist/XtraKernelManager-$versionName.apk")
+    val outputApkPath = layout.projectDirectory.file("dist/XChatAi-$versionName.apk")
 
     // .set() sekarang menerima referensi file yang valid dan "lazy".
     apkFile.set(outputApkPath)
