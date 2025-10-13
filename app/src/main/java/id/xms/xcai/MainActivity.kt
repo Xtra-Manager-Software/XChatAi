@@ -5,15 +5,22 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import id.xms.xcai.data.preferences.UserPreferences
+import id.xms.xcai.data.repository.AppUpdateInfo
+import id.xms.xcai.data.repository.UpdateManager
 import id.xms.xcai.ui.components.DrawerContent
+import id.xms.xcai.ui.components.ForceUpdateDialog
 import id.xms.xcai.ui.screens.ChatScreen
 import id.xms.xcai.ui.screens.LoginScreen
 import id.xms.xcai.ui.screens.OnboardingScreen
@@ -38,12 +45,68 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             XChatAiTheme {
-                AppContent(
+                AppContentWithUpdateCheck(
                     authViewModel = authViewModel,
                     chatViewModel = chatViewModel,
                     settingsViewModel = settingsViewModel
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun AppContentWithUpdateCheck(
+    authViewModel: AuthViewModel,
+    chatViewModel: ChatViewModel,
+    settingsViewModel: SettingsViewModel
+) {
+    val context = LocalContext.current
+    val updateManager = remember { UpdateManager(context) }
+
+    var updateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var isCheckingUpdate by remember { mutableStateOf(true) }
+    var updateCheckError by remember { mutableStateOf(false) }
+
+    // Check for updates on app start
+    LaunchedEffect(Unit) {
+        updateManager.checkForUpdates().onSuccess { info ->
+            updateInfo = info
+            isCheckingUpdate = false
+        }.onFailure { error ->
+            // If update check fails, allow app to continue
+            android.util.Log.e("MainActivity", "Update check failed: ${error.message}")
+            isCheckingUpdate = false
+            updateCheckError = true
+        }
+    }
+
+    when {
+        // Show loading while checking update
+        isCheckingUpdate -> {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Color(0xFF4285F4))
+            }
+        }
+
+        // Show force update dialog if required
+        updateInfo != null && updateManager.isUpdateRequired(updateInfo!!) -> {
+            ForceUpdateDialog(
+                updateInfo = updateInfo!!,
+                currentVersion = updateManager.getCurrentVersion()
+            )
+        }
+
+        // Show normal app content
+        else -> {
+            AppContent(
+                authViewModel = authViewModel,
+                chatViewModel = chatViewModel,
+                settingsViewModel = settingsViewModel
+            )
         }
     }
 }
@@ -90,9 +153,12 @@ private fun AppContent(
     when (currentScreen) {
         Screen.Loading -> {
             // Optional: Show loading screen while checking auth state
-            // Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            //     CircularProgressIndicator()
-            // }
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Color(0xFF4285F4))
+            }
         }
 
         Screen.Login -> {
