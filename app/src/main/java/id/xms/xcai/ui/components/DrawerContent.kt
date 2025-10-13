@@ -2,60 +2,25 @@ package id.xms.xcai.ui.components
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Diamond
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -63,13 +28,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.google.firebase.auth.FirebaseUser
 import id.xms.xcai.data.local.ConversationEntity
 import id.xms.xcai.data.repository.PremiumStatus
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -87,411 +52,116 @@ fun DrawerContent(
     onLogout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isDark = isSystemInDarkTheme()
+    val context = LocalContext.current
+
     var conversationToDelete by remember { mutableStateOf<ConversationEntity?>(null) }
     var conversationToRename by remember { mutableStateOf<ConversationEntity?>(null) }
     var renameText by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
     var showPremiumDialog by remember { mutableStateOf(false) }
 
-    val context = LocalContext.current
-
     val filteredConversations = remember(conversations, searchQuery) {
-        if (searchQuery.isBlank()) {
-            conversations
-        } else {
-            conversations.filter {
-                it.title.contains(searchQuery, ignoreCase = true)
-            }
-        }
+        if (searchQuery.isBlank()) conversations
+        else conversations.filter { it.title.contains(searchQuery, ignoreCase = true) }
     }
 
-    Surface(
+    // Gradient background matching ChatScreen
+    Box(
         modifier = modifier
             .fillMaxHeight()
-            .width(320.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 4.dp
+            .width(320.dp)
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = if (isDark) {
+                        listOf(Color(0xFF1A1A1A), Color(0xFF0D0D0D))
+                    } else {
+                        listOf(Color(0xFFFAFAFA), Color(0xFFEEEEEE))
+                    }
+                )
+            )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .padding(16.dp)
         ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(0.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        if (user?.photoUrl != null) {
-                            AsyncImage(
-                                model = user.photoUrl,
-                                contentDescription = "Profile Photo",
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surface),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = user?.displayName?.firstOrNull()?.uppercase() ?: "?",
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = user?.displayName ?: "User",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = user?.email ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-
-                            if (premiumStatus.isPremium) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = when (premiumStatus.tier) {
-                                        "premium_plus" -> Color(0xFFFFD700)
-                                        else -> MaterialTheme.colorScheme.secondaryContainer
-                                    }
-                                ) {
-                                    Text(
-                                        text = when (premiumStatus.tier) {
-                                            "premium_plus" -> "💎 Premium Plus"
-                                            else -> "⭐ Premium"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = when (premiumStatus.tier) {
-                                            "premium_plus" -> Color(0xFF1A1A1A)
-                                            else -> MaterialTheme.colorScheme.onSecondaryContainer
-                                        },
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Upgrade to Premium Button (Only for Free Users)
-                    if (!premiumStatus.isPremium) {
-                        Surface(
-                            onClick = { showPremiumDialog = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFFFFD700)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 12.dp, horizontal = 12.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Diamond,
-                                    contentDescription = "Upgrade",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = Color(0xFF1A1A1A)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Upgrade to Premium",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF1A1A1A)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Surface(
-                            onClick = onSettingsClick,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = "Settings",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Settings",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
-                        }
-
-                        Surface(
-                            onClick = onLogout,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Logout,
-                                    contentDescription = "Logout",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "Logout",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shadowElevation = 2.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier.weight(1f),
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                        singleLine = true,
-                        decorationBox = { innerTextField ->
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = "Search conversations...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { searchQuery = "" },
-                            modifier = Modifier.size(20.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .combinedClickable(onClick = onNewChat)
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "New Chat",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "New Chat",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Text(
-                            text = if (premiumStatus.isPremium) "✨ Premium access" else "Start a fresh conversation",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (premiumStatus.isPremium)
-                                MaterialTheme.colorScheme.primary
-                            else
-                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-            }
+            // Profile Section (Glass effect)
+            ProfileSection(
+                user = user,
+                premiumStatus = premiumStatus,
+                isDark = isDark,
+                onSettingsClick = onSettingsClick,
+                onLogout = onLogout,
+                onUpgradeClick = { showPremiumDialog = true }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Search Bar
+            SearchBar(
+                searchQuery = searchQuery,
+                onSearchChange = { searchQuery = it },
+                onClear = { searchQuery = "" },
+                isDark = isDark
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // New Chat Button
+            NewChatButton(
+                isPremium = premiumStatus.isPremium,
+                isDark = isDark,
+                onClick = onNewChat
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // History Header
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "History",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isDark) Color.White else Color.Black
                 )
-
                 Text(
                     text = "${filteredConversations.size} chats",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
                 )
             }
 
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Chat List
             if (isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color(0xFF4285F4))
                 }
             } else if (filteredConversations.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (searchQuery.isNotEmpty()) Icons.Default.Search else Icons.Default.Chat,
-                            contentDescription = null,
-                            modifier = Modifier.size(56.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                        Text(
-                            text = if (searchQuery.isNotEmpty()) "No results found" else "No conversations yet",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = if (searchQuery.isNotEmpty()) "Try a different search" else "Start a new chat to begin",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                }
+                EmptyState(hasSearch = searchQuery.isNotEmpty(), isDark = isDark)
             } else {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 8.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(
-                        items = filteredConversations,
-                        key = { it.id }
-                    ) { conversation ->
+                    items(items = filteredConversations, key = { it.id }) { conversation ->
                         ConversationItem(
                             conversation = conversation,
                             isSelected = conversation.id == currentConversationId,
+                            isDark = isDark,
                             onClick = { onConversationClick(conversation.id) },
                             onLongClick = {
                                 conversationToRename = conversation
                                 renameText = conversation.title
                             },
-                            onDelete = { conversationToDelete = conversation },
-                            searchQuery = searchQuery
+                            onDelete = { conversationToDelete = conversation }
                         )
                     }
                 }
@@ -499,7 +169,7 @@ fun DrawerContent(
         }
     }
 
-    // Premium Dialog
+    // Dialogs
     if (showPremiumDialog) {
         PremiumDialog(
             onDismiss = { showPremiumDialog = false },
@@ -512,249 +182,303 @@ fun DrawerContent(
     }
 
     conversationToDelete?.let { conversation ->
-        AlertDialog(
-            onDismissRequest = { conversationToDelete = null },
-            icon = {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error
-                )
+        DeleteDialog(
+            title = conversation.title,
+            onConfirm = {
+                onDeleteConversation(conversation)
+                conversationToDelete = null
             },
-            title = {
-                Text("Delete Conversation?", fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Text("This will permanently delete \"${conversation.title}\" and all its messages.")
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onDeleteConversation(conversation)
-                        conversationToDelete = null
-                    }
-                ) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { conversationToDelete = null }) {
-                    Text("Cancel")
-                }
-            }
+            onDismiss = { conversationToDelete = null }
         )
     }
 
     conversationToRename?.let { conversation ->
-        AlertDialog(
-            onDismissRequest = {
+        RenameDialog(
+            currentName = renameText,
+            onNameChange = { renameText = it },
+            onConfirm = {
+                if (renameText.isNotBlank() && renameText != conversation.title) {
+                    onRenameConversation(conversation, renameText)
+                }
                 conversationToRename = null
                 renameText = ""
             },
-            icon = {
-                Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            },
-            title = {
-                Text("Rename Conversation", fontWeight = FontWeight.Bold)
-            },
-            text = {
-                TextField(
-                    value = renameText,
-                    onValueChange = { renameText = it },
-                    label = { Text("New name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (renameText.isNotBlank() && renameText != conversation.title) {
-                            onRenameConversation(conversation, renameText)
-                        }
-                        conversationToRename = null
-                        renameText = ""
-                    },
-                    enabled = renameText.isNotBlank()
-                ) {
-                    Text("Rename")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        conversationToRename = null
-                        renameText = ""
-                    }
-                ) {
-                    Text("Cancel")
-                }
+            onDismiss = {
+                conversationToRename = null
+                renameText = ""
             }
         )
     }
 }
 
 @Composable
-private fun PremiumDialog(
-    onDismiss: () -> Unit,
-    onContactTelegram: () -> Unit
+private fun ProfileSection(
+    user: FirebaseUser?,
+    premiumStatus: PremiumStatus,
+    isDark: Boolean,
+    onSettingsClick: () -> Unit,
+    onLogout: () -> Unit,
+    onUpgradeClick: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                imageVector = Icons.Default.Diamond,
-                contentDescription = null,
-                tint = Color(0xFFFFD700),
-                modifier = Modifier.size(48.dp)
-            )
-        },
-        title = {
-            Text(
-                text = "Upgrade to Premium",
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
-        },
-        text = {
-            Column(
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = if (isDark) Color(0xFF2D2D2D).copy(alpha = 0.7f) else Color.White.copy(alpha = 0.9f),
+        border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.1f)),
+        shadowElevation = 4.dp
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            // Profile Header
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "Choose your premium plan:",
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center
-                )
-
-                // Premium Plan
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                // Avatar with premium border
+                Surface(
+                    shape = CircleShape,
+                    border = BorderStroke(
+                        width = 2.dp,
+                        color = if (premiumStatus.isPremium) Color(0xFFFFD700) else Color(0xFF4285F4)
                     )
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                    if (user?.photoUrl != null) {
+                        AsyncImage(
+                            model = user.photoUrl,
+                            contentDescription = "Profile",
+                            modifier = Modifier.size(56.dp).clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.size(56.dp).background(Color(0xFF4285F4)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Star,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Premium",
-                                style = MaterialTheme.typography.titleMedium,
+                                text = user?.displayName?.firstOrNull()?.uppercase() ?: "?",
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = Color.White,
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "100 Requests / 30 min",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "$1 / month",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
                     }
                 }
 
-                // Premium Plus Plan
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0xFFFFD700).copy(alpha = 0.2f)
+                // Name & Email
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = user?.displayName ?: "User",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isDark) Color.White else Color.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    Text(
+                        text = user?.email ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // Premium Badge
+            if (premiumStatus.isPremium) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = when (premiumStatus.tier) {
+                        "premium_plus" -> Color(0xFFFFD700).copy(alpha = 0.2f)
+                        else -> Color(0xFF4285F4).copy(alpha = 0.2f)
+                    }
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Diamond,
-                                contentDescription = null,
-                                tint = Color(0xFFFFD700),
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Premium Plus",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(text = if (premiumStatus.tier == "premium_plus") "💎" else "⭐", fontSize = 16.sp)
                         Text(
-                            text = "Unlimited Requests",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = if (premiumStatus.tier == "premium_plus") "Premium Plus" else "Premium",
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFFD700)
+                            color = if (premiumStatus.tier == "premium_plus") Color(0xFFFFD700) else Color(0xFF4285F4)
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "$4 Lifetime",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFFD700)
+                            text = "✨ Unlimited",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
                         )
                     }
                 }
-
-                HorizontalDivider()
-
-                Text(
-                    text = "Contact via Telegram for payment & proof:",
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Text(
-                    text = "t.me/GustyxPower",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    textAlign = TextAlign.Center
-                )
+            } else {
+                // Upgrade Button
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    onClick = onUpgradeClick,
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFFFD700)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Diamond, null, modifier = Modifier.size(18.dp), tint = Color(0xFF1A1A1A))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Upgrade to Premium",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1A1A1A)
+                        )
+                    }
+                }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = onContactTelegram,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF0088CC)
+
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider(color = if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.1f))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Actions
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ActionButton(
+                    icon = Icons.Default.Settings,
+                    label = "Settings",
+                    isDark = isDark,
+                    onClick = onSettingsClick,
+                    modifier = Modifier.weight(1f)
                 )
-            ) {
-                Text("Open Telegram")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                ActionButton(
+                    icon = Icons.Default.ExitToApp,
+                    label = "Logout",
+                    isDark = isDark,
+                    isError = true,
+                    onClick = onLogout,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
-    )
+    }
+}
+
+@Composable
+private fun ActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isDark: Boolean,
+    isError: Boolean = false,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isError) {
+            Color(0xFFEA4335).copy(alpha = 0.1f)
+        } else {
+            if (isDark) Color(0xFF1A1A1A).copy(alpha = 0.5f) else Color(0xFFF1F3F4).copy(alpha = 0.8f)
+        },
+        border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.1f))
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                modifier = Modifier.size(18.dp),
+                tint = if (isError) Color(0xFFEA4335) else if (isDark) Color.White else Color.Black
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (isError) Color(0xFFEA4335) else if (isDark) Color.White else Color.Black
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchBar(
+    searchQuery: String,
+    onSearchChange: (String) -> Unit,
+    onClear: () -> Unit,
+    isDark: Boolean
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = if (isDark) Color(0xFF2D2D2D).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.8f),
+        border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.1f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Icons.Default.Search, "Search", tint = if (isDark) Color.White else Color.Black, modifier = Modifier.size(20.dp))
+
+            BasicTextField(
+                value = searchQuery,
+                onValueChange = onSearchChange,
+                modifier = Modifier.weight(1f),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = if (isDark) Color.White else Color.Black),
+                singleLine = true,
+                decorationBox = { innerTextField ->
+                    if (searchQuery.isEmpty()) {
+                        Text(
+                            "Search conversations...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isDark) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f)
+                        )
+                    }
+                    innerTextField()
+                }
+            )
+
+            if (searchQuery.isNotEmpty()) {
+                IconButton(onClick = onClear, modifier = Modifier.size(20.dp)) {
+                    Icon(Icons.Default.Close, "Clear", modifier = Modifier.size(16.dp), tint = if (isDark) Color.White else Color.Black)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NewChatButton(isPremium: Boolean, isDark: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = Color(0xFF4285F4),
+        shadowElevation = 4.dp
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.2f)) {
+                Icon(Icons.Default.Add, "New Chat", modifier = Modifier.padding(10.dp).size(24.dp), tint = Color.White)
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text("New Chat", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(
+                    if (isPremium) "✨ Premium access" else "Start a conversation",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.8f)
+                )
+            }
+
+            Icon(Icons.Default.ArrowForward, "Go", tint = Color.White, modifier = Modifier.size(20.dp))
+        }
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -762,95 +486,174 @@ private fun PremiumDialog(
 private fun ConversationItem(
     conversation: ConversationEntity,
     isSelected: Boolean,
+    isDark: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    onDelete: () -> Unit,
-    searchQuery: String,
-    modifier: Modifier = Modifier
+    onDelete: () -> Unit
 ) {
     val dateFormat = SimpleDateFormat("MMM dd", Locale.getDefault())
     val dateString = dateFormat.format(Date(conversation.updatedAt))
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) {
-                MaterialTheme.colorScheme.secondaryContainer
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-        ),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isSelected) 2.dp else 0.dp
-        ),
-        shape = RoundedCornerShape(12.dp)
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        shape = RoundedCornerShape(16.dp),
+        color = if (isSelected) {
+            Color(0xFF4285F4).copy(alpha = 0.2f)
+        } else {
+            if (isDark) Color(0xFF2D2D2D).copy(alpha = 0.6f) else Color.White.copy(alpha = 0.8f)
+        },
+        border = BorderStroke(
+            1.dp,
+            if (isSelected) Color(0xFF4285F4).copy(alpha = 0.5f)
+            else if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.1f)
+        )
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Chat,
-                    contentDescription = null,
-                    tint = if (isSelected) {
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier.size(20.dp)
+            Icon(
+                Icons.Default.Chat,
+                null,
+                modifier = Modifier.size(20.dp),
+                tint = if (isSelected) Color(0xFF4285F4) else if (isDark) Color.White else Color.Black
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = conversation.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isDark) Color.White else Color.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = conversation.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.onSecondaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Text(
-                        text = dateString,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        }
-                    )
-                }
+                Text(
+                    text = dateString,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+                )
             }
 
-            IconButton(
-                onClick = onDelete,
-                modifier = Modifier.size(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.error
-                )
+            IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Delete, "Delete", modifier = Modifier.size(18.dp), tint = Color(0xFFEA4335))
             }
         }
     }
+}
+
+@Composable
+private fun EmptyState(hasSearch: Boolean, isDark: Boolean) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Icon(
+                if (hasSearch) Icons.Default.Search else Icons.Default.Chat,
+                null,
+                modifier = Modifier.size(56.dp),
+                tint = if (isDark) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f)
+            )
+            Text(
+                if (hasSearch) "No results found" else "No conversations yet",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (isDark) Color.White else Color.Black
+            )
+            Text(
+                if (hasSearch) "Try a different search" else "Start a new chat to begin",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun DeleteDialog(title: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Delete, null, tint = Color(0xFFEA4335)) },
+        title = { Text("Delete Conversation?", fontWeight = FontWeight.Bold) },
+        text = { Text("This will permanently delete \"$title\" and all its messages.") },
+        confirmButton = { Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA4335))) { Text("Delete") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun RenameDialog(currentName: String, onNameChange: (String) -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Edit, null, tint = Color(0xFF4285F4)) },
+        title = { Text("Rename Conversation", fontWeight = FontWeight.Bold) },
+        text = {
+            TextField(
+                value = currentName,
+                onValueChange = onNameChange,
+                label = { Text("New name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = { Button(onClick = onConfirm, enabled = currentName.isNotBlank()) { Text("Rename") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun PremiumDialog(onDismiss: () -> Unit, onContactTelegram: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Diamond, null, tint = Color(0xFFFFD700), modifier = Modifier.size(48.dp)) },
+        title = { Text("Upgrade to Premium", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text("Choose your premium plan:", style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+
+                // Premium Plan
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF4285F4).copy(alpha = 0.2f))) {
+                    Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Star, null, tint = Color(0xFF4285F4), modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Premium", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("100 Requests / 30 min", style = MaterialTheme.typography.bodySmall, color = Color.Black.copy(alpha = 0.7f))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("$1 / month", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFF4285F4))
+                    }
+                }
+
+                // Premium Plus
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFFD700).copy(alpha = 0.2f))) {
+                    Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Diamond, null, tint = Color(0xFFFFD700), modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Premium Plus", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Unlimited Requests", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = Color(0xFFFFD700))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("$4 Lifetime", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFFFFD700))
+                    }
+                }
+
+                HorizontalDivider()
+                Text("Contact via Telegram for payment:", style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                Text("t.me/GustyxPower", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = Color(0xFF0088CC))
+            }
+        },
+        confirmButton = { Button(onClick = onContactTelegram, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0088CC))) { Text("Open Telegram") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
