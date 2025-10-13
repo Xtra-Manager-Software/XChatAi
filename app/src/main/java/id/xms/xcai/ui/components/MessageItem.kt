@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -26,8 +27,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -53,14 +57,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,7 +77,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-// Data classes (unchanged)
+// Data classes
 data class ParsedMessage(
     val thinking: String?,
     val content: List<MessageContent>
@@ -80,8 +88,10 @@ sealed class MessageContent {
     data class CodeBlock(val code: String, val language: String) : MessageContent()
     data class Heading(val text: String, val level: Int) : MessageContent()
     data class BulletList(val items: List<String>) : MessageContent()
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : MessageContent()
 }
 
+// Parsing functions
 @SuppressLint("SuspiciousIndentation")
 fun parseMessageContent(message: String): ParsedMessage {
     val thinkPattern = """<think>(.*?)</think>""".toRegex(RegexOption.DOT_MATCHES_ALL)
@@ -154,6 +164,92 @@ if (content.isEmpty()) {
 return ParsedMessage(thinking, content)
 }
 
+fun parseMarkdownTable(lines: List<String>, startIndex: Int): Pair<MessageContent.Table?, Int> {
+    if (startIndex >= lines.size) return null to startIndex
+
+    val line = lines[startIndex].trim()
+
+    // Must contain pipes and have at least 2 columns
+    if (!line.startsWith("|") || line.count { it == '|' } < 3) {
+        return null to startIndex
+    }
+
+    // Parse header
+    val headers = line
+        .split("|")
+        .drop(1)  // Remove first empty element from leading |
+        .dropLast(1)  // Remove last empty element from trailing |
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+
+    if (headers.isEmpty()) return null to startIndex
+
+    android.util.Log.d("TableParser", "Headers: $headers")
+
+    var currentIndex = startIndex + 1
+
+    // Skip separator line (|---|---|) or (|---------|----------|)
+    if (currentIndex < lines.size) {
+        val separatorLine = lines[currentIndex].trim()
+        // More flexible separator pattern
+        if (separatorLine.startsWith("|") && separatorLine.contains("-")) {
+            android.util.Log.d("TableParser", "Found separator: $separatorLine")
+            currentIndex++ // Skip separator
+        }
+    }
+
+    // Parse rows
+    val rows = mutableListOf<List<String>>()
+    while (currentIndex < lines.size) {
+        val rowLine = lines[currentIndex].trim()
+
+        // Stop if not a table row (must start with |)
+        if (!rowLine.startsWith("|")) {
+            android.util.Log.d("TableParser", "Row doesn't start with |, stopping")
+            break
+        }
+
+        // Stop if it looks like a separator
+        if (rowLine.contains("---") || rowLine.matches("""^\|[\s\-:]+\|$""".toRegex())) {
+            android.util.Log.d("TableParser", "Found separator line, skipping")
+            currentIndex++
+            continue
+        }
+
+        val cells = rowLine
+            .split("|")
+            .drop(1)  // Remove first empty
+            .dropLast(1)  // Remove last empty
+            .map { it.trim() }
+
+        android.util.Log.d("TableParser", "Row cells: $cells (expected ${headers.size})")
+
+        // Accept row if it has same or similar number of columns
+        if (cells.size == headers.size) {
+            rows.add(cells)
+        } else if (cells.size > 0) {
+            // Pad or truncate to match headers
+            val adjustedCells = cells.take(headers.size).toMutableList()
+            while (adjustedCells.size < headers.size) {
+                adjustedCells.add("")
+            }
+            rows.add(adjustedCells)
+            android.util.Log.d("TableParser", "Adjusted row: $adjustedCells")
+        }
+
+        currentIndex++
+    }
+
+    android.util.Log.d("TableParser", "Total rows: ${rows.size}")
+
+    return if (rows.isNotEmpty()) {
+        MessageContent.Table(headers, rows) to currentIndex
+    } else {
+        null to startIndex
+    }
+}
+
+
 fun parseTextWithMarkdown(text: String): List<MessageContent> {
     val result = mutableListOf<MessageContent>()
     val lines = text.lines()
@@ -166,6 +262,31 @@ fun parseTextWithMarkdown(text: String): List<MessageContent> {
         val trimmedLine = line.trim()
 
         when {
+            // Check for table
+            trimmedLine.contains("|") && trimmedLine.count { it == '|' } >= 2 -> {
+                // Flush buffers
+                if (textBuffer.isNotEmpty()) {
+                    val bufferedText = textBuffer.joinToString("\n").trim()
+                    if (bufferedText.isNotEmpty()) {
+                        result.addAll(parseInlineFormatting(bufferedText))
+                    }
+                    textBuffer.clear()
+                }
+                if (listBuffer.isNotEmpty()) {
+                    result.add(MessageContent.BulletList(listBuffer.toList()))
+                    listBuffer.clear()
+                }
+
+                // Try to parse table
+                val (table, newIndex) = parseMarkdownTable(lines, i)
+                if (table != null) {
+                    result.add(table)
+                    i = newIndex
+                    continue
+                } else {
+                    textBuffer.add(line)
+                }
+            }
             trimmedLine.matches("""^#{1,3}\s+.+$""".toRegex()) -> {
                 if (textBuffer.isNotEmpty()) {
                     val bufferedText = textBuffer.joinToString("\n").trim()
@@ -504,6 +625,15 @@ private fun AIMessageWithContent(
                     is MessageContent.BulletList -> {
                         BulletListText(items = item.items, isDark = isDark)
                     }
+                    is MessageContent.Table -> {
+                        Spacer(modifier = Modifier.size(8.dp))
+                        TableContent(
+                            headers = item.headers,
+                            rows = item.rows,
+                            isDark = isDark
+                        )
+                        Spacer(modifier = Modifier.size(8.dp))
+                    }
                     is MessageContent.CodeBlock -> {
                         if (item.language == "inline") {
                             InlineCodeText(code = item.code, isDark = isDark)
@@ -536,6 +666,203 @@ private fun AIMessageWithContent(
         }
     }
 }
+
+@Composable
+private fun TableContent(
+    headers: List<String>,
+    rows: List<List<String>>,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+
+    // Calculate column width (equal for all)
+    val columnWidth = 140.dp
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = if (isDark) {
+            Color(0xFF2D2D2D).copy(alpha = 0.7f)
+        } else {
+            Color(0xFFF1F3F4).copy(alpha = 0.9f)
+        },
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isDark) {
+                Color.White.copy(alpha = 0.2f)
+            } else {
+                Color.Black.copy(alpha = 0.2f)
+            }
+        ),
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Header with copy button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(text = "📊", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = "Table",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isDark) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
+                    )
+                    Text(
+                        text = "${rows.size} rows",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+                    )
+                }
+
+                IconButton(
+                    onClick = {
+                        val csv = buildString {
+                            append(headers.joinToString(","))
+                            append("\n")
+                            rows.forEach { row ->
+                                append(row.joinToString(","))
+                                append("\n")
+                            }
+                        }
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Table", csv))
+                        Toast.makeText(context, "Table copied as CSV!", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy",
+                        modifier = Modifier.size(16.dp),
+                        tint = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.size(8.dp))
+            HorizontalDivider(
+                color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.15f)
+            )
+            Spacer(modifier = Modifier.size(12.dp))
+
+            // Table with proper grid
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .border(
+                        width = 1.dp,
+                        color = if (isDark) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.25f),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+            ) {
+                Column {
+                    // Header Row
+                    Row(
+                        modifier = Modifier.background(
+                            color = if (isDark) Color(0xFF1A1A1A).copy(alpha = 0.6f) else Color(0xFFE8EAED)
+                        )
+                    ) {
+                        headers.forEachIndexed { index, header ->
+                            Box(
+                                modifier = Modifier
+                                    .width(columnWidth)
+                                    .height(48.dp)
+                                    .then(
+                                        if (index < headers.size - 1) {
+                                            Modifier.drawBehind {
+                                                drawLine(
+                                                    color = if (isDark) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.25f),
+                                                    start = Offset(size.width, 0f),
+                                                    end = Offset(size.width, size.height),
+                                                    strokeWidth = 1.dp.toPx()
+                                                )
+                                            }
+                                        } else Modifier
+                                    )
+                                    .padding(12.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Text(
+                                    text = header,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isDark) Color(0xFF8AB4F8) else Color(0xFF1A73E8),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    // Horizontal divider after header
+                    HorizontalDivider(
+                        thickness = 2.dp,
+                        color = if (isDark) Color.White.copy(alpha = 0.3f) else Color.Black.copy(alpha = 0.3f)
+                    )
+
+                    // Data Rows
+                    rows.forEachIndexed { rowIndex, row ->
+                        Row {
+                            row.forEachIndexed { cellIndex, cell ->
+                                Box(
+                                    modifier = Modifier
+                                        .width(columnWidth)
+                                        .heightIn(min = 44.dp)
+                                        .then(
+                                            if (cellIndex < row.size - 1) {
+                                                Modifier.drawBehind {
+                                                    drawLine(
+                                                        color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.15f),
+                                                        start = Offset(size.width, 0f),
+                                                        end = Offset(size.width, size.height),
+                                                        strokeWidth = 1.dp.toPx()
+                                                    )
+                                                }
+                                            } else Modifier
+                                        )
+                                        .padding(12.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Text(
+                                        text = cell,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (isDark) Color.White.copy(alpha = 0.9f) else Color(0xFF202124),
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+
+                        // Horizontal divider between rows (except last)
+                        if (rowIndex < rows.size - 1) {
+                            HorizontalDivider(
+                                color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.15f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 
 @Composable
 private fun HeadingText(
