@@ -15,6 +15,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "1023109162505-39qi3cg17l5vcuoufhpn8klerfgisu7f.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "id.xms.xcai",
+            "certificate_hash": "9f04e8cce8ebaee3d620ca90fa929e539395d0aa"
+          }
+        },
+        {
           "client_id": "1023109162505-833lpsrsj40fqgn5u9sp8947vjt0s3ha.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
