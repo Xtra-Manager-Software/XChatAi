@@ -219,13 +219,18 @@ class ChatRepository(context: Context) {
         }
     }
 
+    // UPDATED: Add systemPrompt parameter
     suspend fun sendMessageToGroq(
         conversationId: Long,
         userMessage: String,
         userId: String,
-        maxRequests: Int = 20
+        maxRequests: Int = 20,
+        systemPrompt: String = "You are a helpful AI assistant. Provide clear, accurate, and concise responses." // ← NEW PARAMETER
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
+            Log.d("ChatRepository", "=== SEND MESSAGE TO GROQ ===")
+            Log.d("ChatRepository", "Using system prompt: ${systemPrompt.take(100)}...") // Log first 100 chars
+
             val (canProceed, errorMessage) = checkServerRateLimit(userId, maxRequests)
             if (!canProceed) {
                 return@withContext Result.failure(Exception(errorMessage))
@@ -243,10 +248,11 @@ class ChatRepository(context: Context) {
 
             val messages = mutableListOf<Message>()
 
+            // UPDATED: Use custom system prompt instead of hardcoded one
             messages.add(
                 Message(
                     role = "system",
-                    content = "You are a helpful AI assistant. Provide clear, accurate, and concise responses."
+                    content = systemPrompt // ← USE PARAMETER HERE
                 )
             )
 
@@ -260,6 +266,9 @@ class ChatRepository(context: Context) {
             }
 
             messages.add(Message(role = "user", content = userMessage))
+
+            Log.d("ChatRepository", "Total messages in request: ${messages.size}")
+            Log.d("ChatRepository", "Model: $selectedModelId")
 
             val request = GroqChatRequest(
                 model = selectedModelId,
@@ -276,8 +285,11 @@ class ChatRepository(context: Context) {
             val assistantMessage = response.choices.firstOrNull()?.message?.content
                 ?: throw Exception("No response from API")
 
+            Log.d("ChatRepository", "Response received, length: ${assistantMessage.length}")
             Result.success(assistantMessage)
         } catch (e: Exception) {
+            Log.e("ChatRepository", "Error in sendMessageToGroq: ${e.message}")
+            e.printStackTrace()
             Result.failure(e)
         }
     }

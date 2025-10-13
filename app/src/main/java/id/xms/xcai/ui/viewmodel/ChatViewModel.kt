@@ -11,6 +11,8 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import id.xms.xcai.data.local.ChatEntity
 import id.xms.xcai.data.local.ConversationEntity
+import id.xms.xcai.data.model.ResponseMode
+import id.xms.xcai.data.preferences.UserPreferences
 import id.xms.xcai.data.repository.ChatRepository
 import id.xms.xcai.data.repository.PremiumManager
 import id.xms.xcai.data.repository.PremiumStatus
@@ -19,6 +21,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -31,7 +34,8 @@ data class ChatUiState(
     val isLoadingCounter: Boolean = false,
     val streamingText: String = "",
     val isStreaming: Boolean = false,
-    val isThinking: Boolean = false
+    val isThinking: Boolean = false,
+    val currentResponseMode: ResponseMode = ResponseMode.CHAT // NEW
 )
 
 data class ConversationUiState(
@@ -44,6 +48,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ChatRepository(application)
     private val premiumManager = PremiumManager()
     private val firebaseDb = FirebaseDatabase.getInstance()
+    private val preferencesManager = UserPreferences(application) // NEW
 
     private val _chatUiState = MutableStateFlow(ChatUiState())
     val chatUiState: StateFlow<ChatUiState> = _chatUiState.asStateFlow()
@@ -61,6 +66,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var chatCollectionJob: Job? = null
     private var streamingJob: Job? = null
     private var premiumJob: Job? = null
+    private var responseModeJob: Job? = null // NEW
+
+    init {
+        // NEW: Observe Response Mode changes
+        responseModeJob = viewModelScope.launch {
+            preferencesManager.responseMode.collect { mode ->
+                _chatUiState.value = _chatUiState.value.copy(currentResponseMode = mode)
+                Log.d("ChatViewModel", "Response mode changed to: ${mode.displayName}")
+            }
+        }
+    }
 
     fun setupRateLimitListener(userId: String) {
         Log.d("ChatViewModel", "=== SETUP LISTENER ===")
@@ -222,11 +238,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // UPDATED: Add Response Mode to sendMessage
     fun sendMessage(userId: String, message: String) {
         viewModelScope.launch {
             Log.d("ChatViewModel", "=== SEND MESSAGE ===")
             Log.d("ChatViewModel", "Message: $message")
             Log.d("ChatViewModel", "Current conversation: ${_chatUiState.value.currentConversationId}")
+
+            // Get current response mode
+            val responseMode = _chatUiState.value.currentResponseMode
+            Log.d("ChatViewModel", "Using response mode: ${responseMode.displayName}")
 
             _chatUiState.value = _chatUiState.value.copy(
                 isLoading = true,
@@ -259,7 +280,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             _chatUiState.value = _chatUiState.value.copy(isThinking = true)
 
             val maxRequests = premiumManager.getMaxRequests(_premiumStatus.value)
-            val result = repository.sendMessageToGroq(conversationId, message, userId, maxRequests)
+
+            // UPDATED: Pass response mode to repository
+            val result = repository.sendMessageToGroq(
+                conversationId = conversationId,
+                userMessage = message,
+                userId = userId,
+                maxRequests = maxRequests,
+                systemPrompt = responseMode.systemPrompt
+            )
 
             result.onSuccess { aiResponse ->
                 Log.d("ChatViewModel", "API success, starting typewriter effect")
@@ -389,6 +418,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         chatCollectionJob?.cancel()
         streamingJob?.cancel()
         premiumJob?.cancel()
+        responseModeJob?.cancel() // NEW
 
         rateLimitListener?.let { listener ->
             currentUserId?.let { userId ->
