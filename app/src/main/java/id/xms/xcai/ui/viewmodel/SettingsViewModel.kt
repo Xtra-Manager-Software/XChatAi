@@ -3,7 +3,8 @@ package id.xms.xcai.ui.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import id.xms.xcai.data.preferences.UserPreferences  // ← GANTI INI
+import id.xms.xcai.data.model.ResponseMode
+import id.xms.xcai.data.preferences.UserPreferences
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -34,6 +35,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             initialValue = true
         )
 
+    // NEW: Response Mode StateFlow
+    val responseMode: StateFlow<ResponseMode> = preferencesManager.responseMode
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ResponseMode.CHAT
+        )
+
     fun setSelectedModel(modelId: String) {
         viewModelScope.launch {
             preferencesManager.setSelectedModel(modelId)
@@ -49,6 +58,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setDynamicColor(enabled: Boolean) {
         viewModelScope.launch {
             preferencesManager.setDynamicColor(enabled)
+        }
+    }
+    fun setResponseMode(mode: ResponseMode) {
+        viewModelScope.launch {
+            preferencesManager.setResponseMode(mode)
         }
     }
 }

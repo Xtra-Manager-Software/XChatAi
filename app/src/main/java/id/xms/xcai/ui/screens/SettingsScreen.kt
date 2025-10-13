@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.xms.xcai.data.model.GroqModel
+import id.xms.xcai.data.model.ResponseMode
 import id.xms.xcai.ui.viewmodel.SettingsViewModel
 import id.xms.xcai.utils.BackupManager
 import kotlinx.coroutines.launch
@@ -35,6 +36,7 @@ fun SettingsScreen(
 ) {
     val isDark = isSystemInDarkTheme()
     val selectedModelId by settingsViewModel.selectedModelId.collectAsState()
+    val selectedResponseMode by settingsViewModel.responseMode.collectAsState() // ← NEW
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -106,6 +108,54 @@ fun SettingsScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // Response Mode Section (NEW - PLACED FIRST)
+                item {
+                    SectionCard(isDark = isDark) {
+                        Column {
+                            SectionHeader(
+                                icon = Icons.Default.FormatListBulleted,
+                                text = "Response Mode",
+                                isDark = isDark
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = "Choose how AI responds to your queries",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isDark) {
+                                    Color.White.copy(alpha = 0.7f)
+                                } else {
+                                    Color.Black.copy(alpha = 0.7f)
+                                },
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            ResponseMode.entries.forEachIndexed { index, mode ->
+                                ResponseModeItem(
+                                    mode = mode,
+                                    isSelected = mode == selectedResponseMode,
+                                    isDark = isDark,
+                                    onClick = { settingsViewModel.setResponseMode(mode) }
+                                )
+
+                                if (index < ResponseMode.entries.size - 1) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                        color = if (isDark) {
+                                            Color.White.copy(alpha = 0.1f)
+                                        } else {
+                                            Color.Black.copy(alpha = 0.1f)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // AI Model Section
                 item {
                     SectionCard(isDark = isDark) {
@@ -371,6 +421,72 @@ private fun SectionHeader(
             fontWeight = FontWeight.Bold,
             color = if (isDark) Color.White else Color.Black
         )
+    }
+}
+
+// NEW: Response Mode Item Composable
+@Composable
+private fun ResponseModeItem(
+    mode: ResponseMode,
+    isSelected: Boolean,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) {
+            Color(0xFF4285F4).copy(alpha = 0.15f)
+        } else {
+            Color.Transparent
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Emoji icon
+            Text(
+                text = mode.icon,
+                fontSize = 28.sp,
+                modifier = Modifier.size(40.dp)
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = mode.displayName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isDark) Color.White else Color.Black
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = mode.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 12.sp,
+                    color = if (isDark) {
+                        Color.White.copy(alpha = 0.7f)
+                    } else {
+                        Color.Black.copy(alpha = 0.7f)
+                    }
+                )
+            }
+
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = Color(0xFF4285F4),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
     }
 }
 
