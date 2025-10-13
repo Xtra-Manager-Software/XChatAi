@@ -1,52 +1,26 @@
 package id.xms.xcai.ui.screens
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.RestorePage
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import id.xms.xcai.data.model.GroqModel
 import id.xms.xcai.ui.viewmodel.SettingsViewModel
 import id.xms.xcai.utils.BackupManager
@@ -59,9 +33,8 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isDark = isSystemInDarkTheme()
     val selectedModelId by settingsViewModel.selectedModelId.collectAsState()
-    val isDarkMode by settingsViewModel.isDarkMode.collectAsState()
-    val isDynamicColorEnabled by settingsViewModel.isDynamicColorEnabled.collectAsState()
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -71,200 +44,218 @@ fun SettingsScreen(
     var isBackupInProgress by remember { mutableStateOf(false) }
     var isRestoreInProgress by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+    // Handle system back gesture/button
+    BackHandler {
+        onNavigateBack()
+    }
+
+    // Gradient background matching ChatScreen
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = if (isDark) {
+                        listOf(Color(0xFF1A1A1A), Color(0xFF0D0D0D))
+                    } else {
+                        listOf(Color(0xFFFAFAFA), Color(0xFFEEEEEE))
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            // Appearance Section
-            item {
-                SectionHeader(text = "Appearance")
-            }
-
-            item {
-                SettingItem(
-                    icon = { Icon(Icons.Default.DarkMode, null) },
-                    title = "Dark Mode",
-                    subtitle = "Enable dark theme",
-                    trailing = {
-                        Switch(
-                            checked = isDarkMode,
-                            onCheckedChange = { settingsViewModel.setDarkMode(it) }
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                Surface(
+                    color = if (isDark) {
+                        Color(0xFF1A1A1A).copy(alpha = 0.95f)
+                    } else {
+                        Color.White.copy(alpha = 0.95f)
+                    },
+                    shadowElevation = 4.dp
+                ) {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                "Settings",
+                                fontWeight = FontWeight.Bold,
+                                color = if (isDark) Color.White else Color.Black
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onNavigateBack) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    "Back",
+                                    tint = if (isDark) Color.White else Color.Black
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent
                         )
-                    }
-                )
-            }
+                    )
+                }
+            },
+            snackbarHost = { SnackbarHost(snackbarHostState) }
+        ) { paddingValues ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // AI Model Section
+                item {
+                    SectionCard(isDark = isDark) {
+                        Column {
+                            SectionHeader(
+                                icon = Icons.Default.Psychology,
+                                text = "AI Model",
+                                isDark = isDark
+                            )
 
-            item {
-                SettingItem(
-                    icon = { Icon(Icons.Default.Palette, null) },
-                    title = "Dynamic Colors",
-                    subtitle = "Use system wallpaper colors (Android 12+)",
-                    trailing = {
-                        Switch(
-                            checked = isDynamicColorEnabled,
-                            onCheckedChange = { settingsViewModel.setDynamicColor(it) }
-                        )
-                    }
-                )
-            }
+                            Spacer(modifier = Modifier.height(8.dp))
 
-            item {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            }
+                            Text(
+                                text = "Select the AI model to use for chat",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isDark) {
+                                    Color.White.copy(alpha = 0.7f)
+                                } else {
+                                    Color.Black.copy(alpha = 0.7f)
+                                },
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
 
-            // AI Model Section
-            item {
-                SectionHeader(text = "AI Model")
-            }
+                            Spacer(modifier = Modifier.height(12.dp))
 
-            item {
-                Text(
-                    text = "Select the AI model to use for chat",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
+                            GroqModel.availableModels.forEachIndexed { index, model ->
+                                ModelItem(
+                                    model = model,
+                                    isSelected = model.id == selectedModelId,
+                                    isDark = isDark,
+                                    onClick = { settingsViewModel.setSelectedModel(model.id) }
+                                )
 
-            items(GroqModel.availableModels) { model ->
-                ModelItem(
-                    model = model,
-                    isSelected = model.id == selectedModelId,
-                    onClick = { settingsViewModel.setSelectedModel(model.id) }
-                )
-            }
-
-            item {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            }
-
-            // Backup & Restore Section
-            item {
-                SectionHeader(text = "Data Management")
-            }
-
-            item {
-                Text(
-                    text = "Backup and restore your chat history",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-
-            // Backup Button
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = !isBackupInProgress) {
-                            scope.launch {
-                                isBackupInProgress = true
-                                val backupManager = BackupManager(context)
-                                val result = backupManager.createBackup()
-                                isBackupInProgress = false
-
-                                result.onSuccess { path ->
-                                    snackbarHostState.showSnackbar("Backup saved to: $path")
-                                }.onFailure { error ->
-                                    snackbarHostState.showSnackbar("Backup failed: ${error.message}")
+                                if (index < GroqModel.availableModels.size - 1) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                        color = if (isDark) {
+                                            Color.White.copy(alpha = 0.1f)
+                                        } else {
+                                            Color.Black.copy(alpha = 0.1f)
+                                        }
+                                    )
                                 }
                             }
                         }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Backup,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Backup Now",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Save your conversations to device storage",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (isBackupInProgress) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp
-                        )
                     }
                 }
-            }
 
-            // Restore Button
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = !isRestoreInProgress) {
-                            showRestoreDialog = true
+                // Data Management Section
+                item {
+                    SectionCard(isDark = isDark) {
+                        Column {
+                            SectionHeader(
+                                icon = Icons.Default.Storage,
+                                text = "Data Management",
+                                isDark = isDark
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = "Backup and restore your chat history",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isDark) {
+                                    Color.White.copy(alpha = 0.7f)
+                                } else {
+                                    Color.Black.copy(alpha = 0.7f)
+                                },
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Backup Button
+                            DataManagementItem(
+                                icon = Icons.Default.Backup,
+                                title = "Backup Now",
+                                subtitle = "Save your conversations to device storage",
+                                isDark = isDark,
+                                isLoading = isBackupInProgress,
+                                onClick = {
+                                    scope.launch {
+                                        isBackupInProgress = true
+                                        val backupManager = BackupManager(context)
+                                        val result = backupManager.createBackup()
+                                        isBackupInProgress = false
+
+                                        result.onSuccess { path ->
+                                            snackbarHostState.showSnackbar("Backup saved to: $path")
+                                        }.onFailure { error ->
+                                            snackbarHostState.showSnackbar("Backup failed: ${error.message}")
+                                        }
+                                    }
+                                }
+                            )
+
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                color = if (isDark) {
+                                    Color.White.copy(alpha = 0.1f)
+                                } else {
+                                    Color.Black.copy(alpha = 0.1f)
+                                }
+                            )
+
+                            // Restore Button
+                            DataManagementItem(
+                                icon = Icons.Default.RestorePage,
+                                title = "Restore Backup",
+                                subtitle = "Restore conversations from backup file",
+                                isDark = isDark,
+                                isLoading = isRestoreInProgress,
+                                onClick = { showRestoreDialog = true }
+                            )
                         }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.RestorePage,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-
-                    Spacer(modifier = Modifier.width(16.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Restore Backup",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Restore conversations from backup file",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (isRestoreInProgress) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            strokeWidth = 2.dp
-                        )
                     }
                 }
-            }
 
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
+                // About Section
+                item {
+                    SectionCard(isDark = isDark) {
+                        Column {
+                            SectionHeader(
+                                icon = Icons.Default.Info,
+                                text = "About",
+                                isDark = isDark
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            InfoItem(
+                                label = "App Version",
+                                value = "1.0.0",
+                                isDark = isDark
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            InfoItem(
+                                label = "Developer",
+                                value = "Gusti Aditya Muzaky",
+                                isDark = isDark
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
             }
         }
     }
@@ -277,15 +268,21 @@ fun SettingsScreen(
                 Icon(
                     imageVector = Icons.Default.RestorePage,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = Color(0xFF4285F4),
+                    modifier = Modifier.size(48.dp)
                 )
             },
-            title = { Text("Restore Backup") },
+            title = {
+                Text(
+                    "Restore Backup",
+                    fontWeight = FontWeight.Bold
+                )
+            },
             text = {
                 Text("This will restore your conversations from the backup file. Current data will be merged with backup data. Continue?")
             },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         showRestoreDialog = false
                         scope.launch {
@@ -300,7 +297,10 @@ fun SettingsScreen(
                                 snackbarHostState.showSnackbar("Restore failed: ${error.message}")
                             }
                         }
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF4285F4)
+                    )
                 ) {
                     Text("Restore")
                 }
@@ -315,103 +315,245 @@ fun SettingsScreen(
 }
 
 @Composable
-fun SectionHeader(
-    text: String,
-    modifier: Modifier = Modifier
+private fun SectionCard(
+    isDark: Boolean,
+    content: @Composable () -> Unit
 ) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-    )
-}
-
-@Composable
-fun SettingItem(
-    icon: @Composable () -> Unit,
-    title: String,
-    subtitle: String,
-    trailing: @Composable () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = if (isDark) {
+            Color(0xFF2D2D2D).copy(alpha = 0.7f)
+        } else {
+            Color.White.copy(alpha = 0.9f)
+        },
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isDark) {
+                Color.White.copy(alpha = 0.1f)
+            } else {
+                Color.Black.copy(alpha = 0.1f)
+            }
+        ),
+        shadowElevation = 4.dp
     ) {
-        icon()
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Box(modifier = Modifier.padding(16.dp)) {
+            content()
         }
-
-        trailing()
     }
 }
 
 @Composable
-fun ModelItem(
-    model: GroqModel,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
+private fun SectionHeader(
+    icon: ImageVector,
+    text: String,
+    isDark: Boolean
 ) {
     Row(
-        modifier = modifier
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.padding(horizontal = 16.dp)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = Color(0xFF4285F4).copy(alpha = 0.2f)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color(0xFF4285F4),
+                modifier = Modifier.padding(8.dp).size(20.dp)
+            )
+        }
+
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (isDark) Color.White else Color.Black
+        )
+    }
+}
+
+@Composable
+private fun ModelItem(
+    model: GroqModel,
+    isSelected: Boolean,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) {
+            Color(0xFF4285F4).copy(alpha = 0.15f)
+        } else {
+            Color.Transparent
+        },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            RadioButton(
+                selected = isSelected,
+                onClick = onClick,
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = Color(0xFF4285F4)
+                )
+            )
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = model.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isDark) Color.White else Color.Black
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "${model.developer} • ${model.contextWindow / 1024}K context",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isDark) {
+                        Color.White.copy(alpha = 0.7f)
+                    } else {
+                        Color.Black.copy(alpha = 0.7f)
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                    text = model.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 12.sp,
+                    color = if (isDark) {
+                        Color.White.copy(alpha = 0.6f)
+                    } else {
+                        Color.Black.copy(alpha = 0.6f)
+                    }
+                )
+            }
+
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = Color(0xFF4285F4),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DataManagementItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    isDark: Boolean,
+    isLoading: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        enabled = !isLoading,
+        shape = RoundedCornerShape(12.dp),
+        color = Color.Transparent,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFF4285F4).copy(alpha = 0.2f)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = Color(0xFF4285F4),
+                    modifier = Modifier.padding(10.dp).size(20.dp)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isDark) Color.White else Color.Black
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isDark) {
+                        Color.White.copy(alpha = 0.7f)
+                    } else {
+                        Color.Black.copy(alpha = 0.7f)
+                    }
+                )
+            }
+
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp,
+                    color = Color(0xFF4285F4)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.ArrowForward,
+                    contentDescription = null,
+                    tint = if (isDark) {
+                        Color.White.copy(alpha = 0.6f)
+                    } else {
+                        Color.Black.copy(alpha = 0.6f)
+                    },
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoItem(
+    label: String,
+    value: String,
+    isDark: Boolean
+) {
+    Row(
+        modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        RadioButton(
-            selected = isSelected,
-            onClick = onClick
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isDark) {
+                Color.White.copy(alpha = 0.7f)
+            } else {
+                Color.Black.copy(alpha = 0.7f)
+            }
         )
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = model.name,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
-            )
-
-            Text(
-                text = "${model.developer} • ${model.contextWindow / 1024}K context",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = model.description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        if (isSelected) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-        }
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = if (isDark) Color.White else Color.Black
+        )
     }
 }
