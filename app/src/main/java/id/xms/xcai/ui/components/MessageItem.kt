@@ -421,7 +421,8 @@ fun MessageItem(
             time = timeString,
             isDark = isDark,
             modifier = modifier,
-            isStreaming = isStreaming
+            isStreaming = isStreaming,
+            fullMessageText = message.message
         )
     }
 }
@@ -516,9 +517,11 @@ private fun AIMessageWithContent(
     time: String,
     isDark: Boolean,
     modifier: Modifier = Modifier,
-    isStreaming: Boolean = false
+    isStreaming: Boolean = false,
+    fullMessageText: String = "" // NEW parameter for copy all
 ) {
     var isThinkingExpanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Column(
         modifier = modifier
@@ -573,12 +576,57 @@ private fun AIMessageWithContent(
                 }
             }
 
-            Text(
-                text = "XChatAi",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isDark) Color.White else Color.Black
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "XChatAi",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isDark) Color.White else Color.Black
+                )
+            }
+
+            if (!isStreaming && fullMessageText.isNotEmpty()) {
+                Surface(
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("AI Response", fullMessageText))
+                        Toast.makeText(context, "Full response copied!", Toast.LENGTH_SHORT).show()
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isDark) {
+                        Color(0xFF2D2D2D).copy(alpha = 0.5f)
+                    } else {
+                        Color(0xFFF1F3F4).copy(alpha = 0.8f)
+                    },
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = if (isDark) {
+                            Color.White.copy(alpha = 0.2f)
+                        } else {
+                            Color.Black.copy(alpha = 0.2f)
+                        }
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy All",
+                            modifier = Modifier.size(14.dp),
+                            tint = if (isDark) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
+                        )
+                        Text(
+                            text = "Copy",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isDark) Color(0xFF8AB4F8) else Color(0xFF1A73E8),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.size(8.dp))
@@ -666,6 +714,7 @@ private fun AIMessageWithContent(
         }
     }
 }
+
 
 @Composable
 private fun TableContent(

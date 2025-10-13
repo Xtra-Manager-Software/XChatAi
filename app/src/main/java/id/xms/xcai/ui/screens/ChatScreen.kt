@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -45,7 +46,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,7 +75,7 @@ fun ChatScreen(
     onOpenDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isDark = isSystemInDarkTheme()  // Theme detection
+    val isDark = isSystemInDarkTheme()
 
     val chatUiState by chatViewModel.chatUiState.collectAsState()
     val premiumStatus by chatViewModel.premiumStatus.collectAsState()
@@ -106,7 +106,6 @@ fun ChatScreen(
         }
     }
 
-    // Safe auto-scroll
     LaunchedEffect(chatUiState.messages.size) {
         if (chatUiState.messages.isNotEmpty() && !chatUiState.isStreaming) {
             delay(100)
@@ -137,7 +136,6 @@ fun ChatScreen(
         }
     }
 
-    // Theme-aware gradient background
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -306,7 +304,6 @@ fun ChatScreen(
                         .fillMaxWidth()
                 ) {
                     if (chatUiState.messages.isEmpty() && !chatUiState.isLoading) {
-                        // Theme-aware greeting
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -367,7 +364,6 @@ fun ChatScreen(
                     }
                 }
 
-                // Theme-aware input section
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -400,7 +396,6 @@ fun ChatScreen(
                         verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Theme-aware glass input field
                         Surface(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(28.dp),
@@ -451,23 +446,31 @@ fun ChatScreen(
                             )
                         }
 
-                        // Send button
+                        // ✅ NEW: Send/Stop Button with conditional logic
                         Surface(
                             onClick = {
-                                if (messageText.isNotBlank() && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium)) {
-                                    authUiState.user?.uid?.let { userId ->
-                                        chatViewModel.sendMessage(userId, messageText.trim())
-                                        messageText = ""
-                                        chatViewModel.setUserTyping(false)
+                                if (chatUiState.isStreaming) {
+                                    // Stop streaming
+                                    chatViewModel.stopStreaming()
+                                } else {
+                                    // Send message
+                                    if (messageText.isNotBlank() && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium)) {
+                                        authUiState.user?.uid?.let { userId ->
+                                            chatViewModel.sendMessage(userId, messageText.trim())
+                                            messageText = ""
+                                            chatViewModel.setUserTyping(false)
+                                        }
+                                    } else if (chatUiState.remainingRequests == 0 && !premiumStatus.isPremium) {
+                                        showRateLimitDialog = true
+                                        rateLimitMessage = "You've reached the maximum of 20 requests per 30 minutes."
                                     }
-                                } else if (chatUiState.remainingRequests == 0 && !premiumStatus.isPremium) {
-                                    showRateLimitDialog = true
-                                    rateLimitMessage = "You've reached the maximum of 20 requests per 30 minutes."
                                 }
                             },
                             shape = RoundedCornerShape(28.dp),
-                            color = if (messageText.isNotBlank() && !chatUiState.isLoading && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium) && !chatUiState.isLoadingCounter) {
-                                Color(0xFF4285F4)
+                            color = if (chatUiState.isStreaming) {
+                                Color(0xFFEA4335) // Red for stop
+                            } else if (messageText.isNotBlank() && !chatUiState.isLoading && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium) && !chatUiState.isLoadingCounter) {
+                                Color(0xFF4285F4) // Blue for send
                             } else {
                                 if (isDark) {
                                     Color(0xFF2D2D2D).copy(alpha = 0.5f)
@@ -475,22 +478,33 @@ fun ChatScreen(
                                     Color(0xFFCCCCCC).copy(alpha = 0.5f)
                                 }
                             },
-                            enabled = messageText.isNotBlank() && !chatUiState.isLoading && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium) && !chatUiState.isLoadingCounter,
+                            enabled = chatUiState.isStreaming || (messageText.isNotBlank() && !chatUiState.isLoading && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium) && !chatUiState.isLoadingCounter),
                             modifier = Modifier.size(56.dp)
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = "Send",
-                                    tint = if (messageText.isNotBlank() && !chatUiState.isLoading) {
-                                        Color.White
-                                    } else {
-                                        Color.White.copy(alpha = 0.3f)
-                                    }
-                                )
+                                if (chatUiState.isStreaming) {
+                                    // Stop icon
+                                    Icon(
+                                        imageVector = Icons.Default.Stop,
+                                        contentDescription = "Stop",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                } else {
+                                    // Send icon
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "Send",
+                                        tint = if (messageText.isNotBlank() && !chatUiState.isLoading) {
+                                            Color.White
+                                        } else {
+                                            Color.White.copy(alpha = 0.3f)
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
