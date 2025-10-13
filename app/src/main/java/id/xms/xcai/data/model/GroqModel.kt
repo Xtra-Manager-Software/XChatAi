@@ -38,13 +38,6 @@ data class GroqModel(
                 description = "MoE model with 1T parameters, 32B activated. Excellence in tool use, coding, and agentic tasks with 256K context"
             ),
             GroqModel(
-                id = "deepseek-r1-distill-llama-70b",
-                name = "DeepSeek R1 Distill Llama 70B",
-                developer = "DeepSeek",
-                contextWindow = 131072,
-                description = "Reasoning-focused model with enhanced Chain-of-Thought capabilities for complex problem solving"
-            ),
-            GroqModel(
                 id = "openai/gpt-oss-120b",
                 name = "GPT-OSS 120B",
                 developer = "OpenAI",
