@@ -28,10 +28,14 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+    }
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
+    signingConfigs {
+        create("release") {
+            storeFile = project.findProperty("myKeystorePath")?.let { file(it) }
+            storePassword = project.findProperty("myKeystorePassword") as String?
+            keyAlias = project.findProperty("myKeyAlias") as String?
+            keyPassword = project.findProperty("myKeyPassword") as String?
         }
     }
 
@@ -42,12 +46,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        lint.disable.add("NullSafeMutableLiveData")
     }
 
     kotlinOptions {
@@ -137,7 +143,6 @@ dependencies {
 }
 
 
-// Function to upload the APK to a server
 tasks.register("sendTelegramMessage", SendTelegramMessageTask::class) {
     group = "custom"
     description = "Sends a build status message to Telegram."
@@ -274,10 +279,6 @@ abstract class SendTelegramMessageTask : DefaultTask() {
         val minSdkVersion = project.android.defaultConfig.minSdk ?: "N/A"
         val targetSdkVersionInt = project.android.defaultConfig.targetSdk
         val targetSdkVersionName = when (targetSdkVersionInt) {
-            26 -> "7 [Nougat]" // Android 7
-            27 -> "8 [Oreo]" // Android 8
-            27 -> "8.1 [Oreo]" // Android 8.1
-            28 -> "9 [Pie]" // Android 9
             29 -> "10 [QuinceTart]" // Android 10
             30 -> "11 [RedVelvet]" // Android 11
             31 -> "12 [Snowcone]" // Android 12
@@ -362,18 +363,18 @@ abstract class SendTelegramMessageTask : DefaultTask() {
                 "🆔 Package: ${currentAppPackage}\n" +
                 "📅 Time: ${Date().toString()}\n\n" +
                 "[Build Environment]\n" +
-                "OS: $osName ($osArch)\n" +
-                "Kernel: $kernelInfo\n" +
-                "Processor:\n $processor\n" +
-                "RAM:\n Total: $totalRamGb\n Free: $freeRamGb\n Used: $usedRamGb\n" +
-                "Storage:\n Total: $totalStorageGb\n Free: $freeStorageGb\n" +
-                "Android Studio: Narwhal Feature Drop\n" +
-                "Kotlin: $kotlinVersion\n" +
-                "Java: $javaVersion\n" +
-                "Gradle (Kotlin DSL): $gradleVersion\n\n" +
+                "  OS: $osName ($osArch)\n" +
+                "  Kernel: $kernelInfo\n" +
+                "  Processor:\n $processor\n" +
+                "  RAM:\n Total: $totalRamGb\n Free: $freeRamGb\n Used: $usedRamGb\n" +
+                "  Storage:\n Total: $totalStorageGb\n Free: $freeStorageGb\n" +
+                "  Android Studio: Narwhal Feature Drop\n" +
+                "  Kotlin: $kotlinVersion\n" +
+                "  Java: $javaVersion\n" +
+                "  Gradle (Kotlin DSL): $gradleVersion\n\n" +
                 "[App SDK Information]\n" +
-                "Min SDK: $minSdkVersion (Android $minSdkCodename)\n" +
-                "Target SDK: $targetSdkVersionInt (Android $targetSdkVersionName)\n"
+                "  Min SDK: $minSdkVersion (Android $minSdkCodename)\n" +
+                "  Target SDK: $targetSdkVersionInt (Android $targetSdkVersionName)\n"
 
 
         if (buildChangelog.isNotBlank()) {
@@ -477,14 +478,14 @@ abstract class UploadApkToTelegramTask : DefaultTask() {
         }
 
         // Hilangkan // jika sudah ingin release
-        val caption = "📦 New Release build: ${appName.get()} v${appVersionName.get()}\n" +
-        "Build time: ${Date()}\n" +
-        "File: ${currentApkFile.name} (${"%.2f".format(fileSizeMb)} MB)"
+        // val caption = "📦 New Release build: ${appName.get()} v${appVersionName.get()}\n" +
+        //"Build time: ${Date()}\n" +
+        // "File: ${currentApkFile.name} (${"%.2f".format(fileSizeMb)} MB)"
 
         // Tambahkan // jika sudah tidak ingin menggunakan test release
-//        val caption = "📦 New Test Release build: ${appName.get()} v${appVersionName.get()}\n" +
-//                "Build time: ${Date()}\n" +
-//                "File: ${currentApkFile.name} (${"%.2f".format(fileSizeMb)} MB)"
+        val caption = "📦 New Test Release build: ${appName.get()} v${appVersionName.get()}\n" +
+                "Build time: ${Date()}\n" +
+                "File: ${currentApkFile.name} (${"%.2f".format(fileSizeMb)} MB)"
 
         val url = "https://botapi.arasea.dpdns.org/bot${telegramBotToken.get()}/sendDocument"
         val requestConfig = RequestConfig.custom()
@@ -514,7 +515,7 @@ abstract class UploadApkToTelegramTask : DefaultTask() {
                 EntityUtils.consumeQuietly(response.entity)
             } catch (e: Exception) {
                 project.logger.error("Failed to upload APK to Telegram: ${e.message}", e)
-                e.printStackTrace()
+                e.printStackTrace() // logger.error with exception will print stack trace with --stacktrace
             }
         }
     }
@@ -561,6 +562,8 @@ val uploadReleaseApkToTelegram by tasks.registering(UploadApkToTelegramTask::cla
     telegramChatId.convention(project.findProperty("telegramChatId")?.toString() ?: "")
     appVersionName.convention(project.provider { android.defaultConfig.versionName ?: "N/A" })
     appName.convention(project.name)
+
+    // SANGAT PENTING: Pastikan task ini baru berjalan SETELAH rename selesai.
     mustRunAfter(renameReleaseApk)
 }
 
@@ -569,7 +572,7 @@ val notifyBuildStatusToTelegram by tasks.registering(SendTelegramMessageTask::cl
     group = "custom"
     description = "Sends the final build status to Telegram."
 
-
+    // Konfigurasi properti
     appVersionName.convention(project.provider { android.defaultConfig.versionName ?: "N/A" })
     appPackageName.convention(project.provider { android.defaultConfig.applicationId ?: "N/A" })
     appProjectName.convention(project.provider { android.namespace?.substringAfterLast('.') ?: project.name })
