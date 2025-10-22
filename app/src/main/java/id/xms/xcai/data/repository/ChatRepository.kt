@@ -45,10 +45,10 @@ class ChatRepository(context: Context) {
     private val firebaseDb = FirebaseDatabase.getInstance()
     private val preferencesManager = UserPreferences(context)
 
-    private val MAX_HISTORY_MESSAGES = 15
+    private val MAX_HISTORY_MESSAGES = 100
 
     companion object {
-        private const val TIME_WINDOW_MS = 30 * 60 * 1000L // 30 menit
+        private const val TIME_WINDOW_MS = 20 * 60 * 1000L // 20 menit
     }
 
     fun getConversationsByUser(userId: String): Flow<List<ConversationEntity>> {
@@ -62,6 +62,21 @@ class ChatRepository(context: Context) {
         )
         return conversationDao.insertConversation(conversation)
     }
+
+    /**
+     * Delete a specific chat message
+     */
+    suspend fun deleteChat(chat: ChatEntity) = withContext(Dispatchers.IO) {
+        database.chatDao().deleteChat(chat)
+    }
+
+    /**
+     * Update a chat message
+     */
+    suspend fun updateChat(chat: ChatEntity) = withContext(Dispatchers.IO) {
+        database.chatDao().updateChat(chat)
+    }
+
 
     suspend fun updateConversation(conversation: ConversationEntity) {
         conversationDao.updateConversation(conversation)
@@ -88,7 +103,7 @@ class ChatRepository(context: Context) {
     }
 
     // ✅ IMPROVED: Better error handling with try-catch
-    suspend fun checkServerRateLimit(userId: String, maxRequests: Int = 20): Pair<Boolean, String> =
+    suspend fun checkServerRateLimit(userId: String, maxRequests: Int = 25): Pair<Boolean, String> =
         withContext(Dispatchers.IO) {
             try {
                 // If unlimited, always allow
@@ -197,7 +212,7 @@ class ChatRepository(context: Context) {
         }
 
     // ✅ IMPROVED: Better error handling with try-catch
-    suspend fun getServerRemainingRequests(userId: String, maxRequests: Int = 20): Int = withContext(Dispatchers.IO) {
+    suspend fun getServerRemainingRequests(userId: String, maxRequests: Int = 25): Int = withContext(Dispatchers.IO) {
         try {
             // If unlimited, return max value
             if (maxRequests == Int.MAX_VALUE) {
@@ -249,7 +264,7 @@ class ChatRepository(context: Context) {
         conversationId: Long,
         userMessage: String,
         userId: String,
-        maxRequests: Int = 20,
+        maxRequests: Int = 25,
         systemPrompt: String = "You are a helpful AI assistant. Provide clear, accurate, and concise responses."
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
@@ -298,7 +313,7 @@ class ChatRepository(context: Context) {
                 model = selectedModelId,
                 messages = messages,
                 temperature = 0.7,
-                maxTokens = 2048
+                maxTokens = 8096
             )
 
             val response = groqApi.sendMessage(

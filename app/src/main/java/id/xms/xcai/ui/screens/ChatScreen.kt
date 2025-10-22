@@ -120,10 +120,8 @@ fun ChatScreen(
         }
     }
 
-    // ✅ IMPROVED: Better error handling with specific dialogs
     LaunchedEffect(chatUiState.error) {
         chatUiState.error?.let { error ->
-            // Check if it's rate limit error
             if (error.contains("rate limit", ignoreCase = true) ||
                 error.contains("request limit", ignoreCase = true) ||
                 error.contains("wait", ignoreCase = true)) {
@@ -131,12 +129,11 @@ fun ChatScreen(
                 rateLimitMessage = if (premiumStatus.isPremium) {
                     "You've reached your ${premiumStatus.maxRequests} requests limit. Please wait 30 minutes before sending more messages."
                 } else {
-                    error // Use the clean error message from Repository
+                    error
                 }
                 showRateLimitDialog = true
 
             } else {
-                // Show other errors as snackbar (network, timeout, etc)
                 snackbarHostState.showSnackbar(
                     message = error,
                     duration = SnackbarDuration.Short
@@ -355,8 +352,24 @@ fun ChatScreen(
                                 items = chatUiState.messages,
                                 key = { it.id }
                             ) { message ->
+                                // ✅ Determine if this is the last user message
+                                val messageIndex = chatUiState.messages.indexOf(message)
+                                val isLastUserMessage = message.isUser &&
+                                        messageIndex == chatUiState.messages.indexOfLast { it.isUser }
+
                                 MessageItem(
-                                    message = message
+                                    message = message,
+                                    isLastUserMessage = isLastUserMessage,
+                                    onEditMessage = { messageId, newText ->
+                                        authUiState.user?.uid?.let { userId ->
+                                            chatViewModel.editMessageAndRegenerate(userId, messageId, newText)
+                                        }
+                                    },
+                                    onRegenerateResponse = { _ ->
+                                        authUiState.user?.uid?.let { userId ->
+                                            chatViewModel.regenerateResponse(userId)
+                                        }
+                                    }
                                 )
                             }
 
@@ -525,7 +538,6 @@ fun ChatScreen(
         }
     }
 
-    // ✅ IMPROVED: Better Rate Limit Dialog with Upgrade Option
     if (showRateLimitDialog) {
         AlertDialog(
             onDismissRequest = { showRateLimitDialog = false },
@@ -547,7 +559,6 @@ fun ChatScreen(
                 Column {
                     Text(rateLimitMessage)
 
-                    // Show upgrade option for free users
                     if (!premiumStatus.isPremium) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(

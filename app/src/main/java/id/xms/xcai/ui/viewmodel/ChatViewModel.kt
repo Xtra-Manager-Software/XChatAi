@@ -117,7 +117,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         val rateLimitRef = firebaseDb.getReference("rate_limits/$userId")
         loadRemainingRequests(userId)
 
-        // ✅ IMPROVED: Wrapped in try-catch
         rateLimitListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 try {
@@ -188,7 +187,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     delay(10000)
                 } catch (e: Exception) {
                     Log.e("ChatViewModel", "Polling error: ${e.message}")
-                    delay(10000) // Continue polling despite error
+                    delay(10000)
                 }
             }
         }
@@ -273,7 +272,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ✅ IMPROVED: Better error handling
     fun sendMessage(userId: String, message: String) {
         viewModelScope.launch {
             try {
@@ -338,7 +336,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }.onFailure { exception ->
                     Log.e("ChatViewModel", "API failed: ${exception.message}")
 
-                    // ✅ Clean user-friendly error message
                     val userMessage = when {
                         exception.message?.contains("Rate limit", ignoreCase = true) == true -> {
                             exception.message ?: "Rate limit reached"
@@ -365,7 +362,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
             } catch (e: Exception) {
-                // ✅ Catch any unexpected errors
                 Log.e("ChatViewModel", "Unexpected error in sendMessage: ${e.message}", e)
 
                 _chatUiState.value = _chatUiState.value.copy(
@@ -466,6 +462,78 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    /**
+     * Edit user message and regenerate AI response
+     */
+    fun editMessageAndRegenerate(userId: String, messageId: String, newMessage: String) {
+        viewModelScope.launch {
+            try {
+                val messageIdLong = messageId.toLongOrNull() ?: return@launch
+                val conversationId = _chatUiState.value.currentConversationId ?: return@launch
+
+                val messages = _chatUiState.value.messages
+                val messageIndex = messages.indexOfFirst { it.id == messageIdLong }
+
+                if (messageIndex == -1 || !messages[messageIndex].isUser) return@launch
+
+                // Delete AI responses after this user message
+                val messagesToDelete = messages.subList(messageIndex + 1, messages.size)
+
+                messagesToDelete.forEach { msg ->
+                    if (!msg.isUser) {
+                        repository.deleteChat(msg)  // ✅ Call repository directly
+                    }
+                }
+
+                // Update user message
+                val updatedMessage = messages[messageIndex].copy(message = newMessage)
+                repository.updateChat(updatedMessage)  // ✅ Call repository directly
+
+                // Send new message to AI
+                sendMessage(userId, newMessage)
+
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Error editing message: ${e.message}")
+                _chatUiState.value = _chatUiState.value.copy(
+                    error = "Failed to edit message"
+                )
+            }
+        }
+    }
+
+    /**
+     * Regenerate the last AI response
+     */
+    fun regenerateResponse(userId: String) {
+        viewModelScope.launch {
+            try {
+                val conversationId = _chatUiState.value.currentConversationId ?: return@launch
+                val messages = _chatUiState.value.messages
+
+                // Find last user message
+                val lastUserMessage = messages.lastOrNull { it.isUser } ?: return@launch
+
+                // Delete last AI response if exists
+                val lastAiMessage = messages.lastOrNull { !it.isUser }
+                if (lastAiMessage != null) {
+                    repository.deleteChat(lastAiMessage)  // ✅ Call repository directly
+                }
+
+                // Resend the last user message
+                sendMessage(userId, lastUserMessage.message)
+
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Error regenerating response: ${e.message}")
+                _chatUiState.value = _chatUiState.value.copy(
+                    error = "Failed to regenerate response"
+                )
+            }
+        }
+    }
+
+    // ✅ REMOVED: Extension functions are gone!
+    // Functions now call repository directly
 
     fun clearError() {
         _chatUiState.value = _chatUiState.value.copy(error = null)
