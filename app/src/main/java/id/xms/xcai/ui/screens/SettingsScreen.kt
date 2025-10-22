@@ -288,7 +288,7 @@ fun SettingsScreen(
 
                             InfoItem(
                                 label = "App Version",
-                                value = "1.0",
+                                value = "1.1",
                                 isDark = isDark
                             )
 
