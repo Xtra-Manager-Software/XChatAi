@@ -55,12 +55,11 @@ class UpdateManager(private val context: Context) {
             }
 
             val latestVersion = snapshot.child("latest_version").getValue(String::class.java) ?: ""
-            val minimumVersion =
-                snapshot.child("minimum_version").getValue(String::class.java) ?: ""
+            val minimumVersion = snapshot.child("minimum_version").getValue(String::class.java) ?: ""
             val downloadUrl = snapshot.child("download_url").getValue(String::class.java) ?: ""
             val forceUpdate = snapshot.child("force_update").getValue(Boolean::class.java) ?: false
-            val updateTitle =
-                snapshot.child("update_title").getValue(String::class.java) ?: "Update Available"
+            val updateTitle = snapshot.child("update_title").getValue(String::class.java)
+                ?: "Update Available"
             val updateMessage = snapshot.child("update_message").getValue(String::class.java)
                 ?: "A new version is available."
 
@@ -93,7 +92,7 @@ class UpdateManager(private val context: Context) {
     }
 
     /**
-     * Check if update is required
+     * Check if update is required (force update)
      */
     fun isUpdateRequired(updateInfo: AppUpdateInfo): Boolean {
         val currentVersion = getCurrentVersion()
@@ -127,7 +126,6 @@ class UpdateManager(private val context: Context) {
     fun isUpdateAvailable(updateInfo: AppUpdateInfo): Boolean {
         val currentVersion = getCurrentVersion()
         val latestVersion = updateInfo.latestVersion
-
         return compareVersions(currentVersion, latestVersion) < 0 && !updateInfo.forceUpdate
     }
 
@@ -138,14 +136,11 @@ class UpdateManager(private val context: Context) {
     private fun compareVersions(v1: String, v2: String): Int {
         if (v1 == v2) return 0
 
-        // Split and clean versions
         val parts1 = v1.trim().split(".").map { it.toIntOrNull() ?: 0 }
         val parts2 = v2.trim().split(".").map { it.toIntOrNull() ?: 0 }
 
-        // Get max length to compare all parts
         val maxLength = maxOf(parts1.size, parts2.size)
 
-        // Compare each part
         for (i in 0 until maxLength) {
             val part1 = parts1.getOrNull(i) ?: 0
             val part2 = parts2.getOrNull(i) ?: 0
