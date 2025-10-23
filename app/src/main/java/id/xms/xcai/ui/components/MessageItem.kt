@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.xms.xcai.data.local.ChatEntity
@@ -39,6 +40,7 @@ sealed class MessageContent {
     data class Code(val code: String, val language: String = "") : MessageContent()
     data class InlineCode(val code: String) : MessageContent()
     data class Bold(val text: String) : MessageContent()
+    data class Table(val headers: List<String>, val rows: List<List<String>>) : MessageContent()
 }
 
 @Composable
@@ -97,12 +99,13 @@ fun parseMessageContent(text: String): Pair<String?, List<MessageContent>> {
 private fun parseContent(text: String): List<MessageContent> {
     val result = mutableListOf<MessageContent>()
     var remainingText = text
+    val tripleBacktick = "```"
 
     while (remainingText.isNotEmpty()) {
         when {
-            remainingText.startsWith("```") -> {
-                val endIndex = remainingText.indexOf("```", 3)
-                if (endIndex != -1 && endIndex > 3) {  // Memastikan endIndex > 3
+            remainingText.startsWith(tripleBacktick) -> {
+                val endIndex = remainingText.indexOf(tripleBacktick, 3)
+                if (endIndex != -1 && endIndex > 3) {
                     val codeBlock = remainingText.substring(3, endIndex)
                     val lines = codeBlock.lines()
                     val language = lines.firstOrNull()?.trim() ?: ""
@@ -114,58 +117,111 @@ private fun parseContent(text: String): List<MessageContent> {
                     result.add(MessageContent.Code(code.trim(), language))
                     remainingText = remainingText.substring(endIndex + 3).trimStart()
                 } else {
-                    // Tidak ada closing backticks, treat sebagai text
                     result.add(MessageContent.Text(remainingText))
                     remainingText = ""
                 }
-        }
+            }
 
-        remainingText.startsWith("`") && !remainingText.startsWith("```") -> {
-            val endIndex = remainingText.indexOf("`", 1)
-        if (endIndex != -1 && endIndex > 1) {  // Memastikan endIndex > 1
-            result.add(MessageContent.InlineCode(remainingText.substring(1, endIndex)))
-            remainingText = remainingText.substring(endIndex + 1)
-        } else {
-            result.add(MessageContent.Text(remainingText))
-            remainingText = ""
+            remainingText.startsWith("`") && !remainingText.startsWith(tripleBacktick) -> {
+                val endIndex = remainingText.indexOf("`", 1)
+                if (endIndex != -1 && endIndex > 1) {
+                    result.add(MessageContent.InlineCode(remainingText.substring(1, endIndex)))
+                    remainingText = remainingText.substring(endIndex + 1)
+                } else {
+                    result.add(MessageContent.Text(remainingText))
+                    remainingText = ""
+                }
+            }
+
+            remainingText.startsWith("**") -> {
+                val endIndex = remainingText.indexOf("**", 2)
+                if (endIndex != -1 && endIndex > 2) {
+                    result.add(MessageContent.Bold(remainingText.substring(2, endIndex)))
+                    remainingText = remainingText.substring(endIndex + 2)
+                } else {
+                    result.add(MessageContent.Text(remainingText))
+                    remainingText = ""
+                }
+            }
+
+            remainingText.contains("|") && remainingText.contains("\n") -> {
+                val lines = remainingText.lines()
+                val tableLines = mutableListOf<String>()
+
+                for (line in lines) {
+                    val trimmedLine = line.trim()
+                    if (trimmedLine.startsWith("|") && trimmedLine.endsWith("|")) {
+                        tableLines.add(line)
+                    } else if (tableLines.size >= 3) {
+                        break
+                    } else if (tableLines.isNotEmpty()) {
+                        tableLines.clear()
+                    }
+                }
+
+                if (tableLines.size >= 3) {
+                    val headers = tableLines[0]
+                        .split("|")
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+
+                    val rows = tableLines.drop(2)
+                        .map { line ->
+                            line.split("|")
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                        }
+                        .filter { it.isNotEmpty() }
+
+                    result.add(MessageContent.Table(headers, rows))
+
+                    val tableText = tableLines.joinToString("\n")
+                    remainingText = remainingText.substringAfter(tableText).trimStart()
+                    continue
+                }
+
+                val codeBlockIndex = remainingText.indexOf(tripleBacktick)
+                val inlineCodeIndex = remainingText.indexOf("`")
+                val boldIndex = remainingText.indexOf("**")
+
+                val nextSpecialChar = listOf(
+                    codeBlockIndex,
+                    inlineCodeIndex,
+                    boldIndex
+                ).filter { it != -1 }.minOrNull()
+
+                if (nextSpecialChar != null && nextSpecialChar > 0) {
+                    result.add(MessageContent.Text(remainingText.substring(0, nextSpecialChar)))
+                    remainingText = remainingText.substring(nextSpecialChar)
+                } else {
+                    result.add(MessageContent.Text(remainingText))
+                    remainingText = ""
+                }
+            }
+
+            else -> {
+                val codeBlockIndex = remainingText.indexOf(tripleBacktick)
+                val inlineCodeIndex = remainingText.indexOf("`")
+                val boldIndex = remainingText.indexOf("**")
+
+                val nextSpecialChar = listOf(
+                    codeBlockIndex,
+                    inlineCodeIndex,
+                    boldIndex
+                ).filter { it != -1 }.minOrNull()
+
+                if (nextSpecialChar != null && nextSpecialChar > 0) {
+                    result.add(MessageContent.Text(remainingText.substring(0, nextSpecialChar)))
+                    remainingText = remainingText.substring(nextSpecialChar)
+                } else {
+                    result.add(MessageContent.Text(remainingText))
+                    remainingText = ""
+                }
+            }
         }
     }
-
-    remainingText.startsWith("**") -> {
-        val endIndex = remainingText.indexOf("**", 2)
-        if (endIndex != -1 && endIndex > 2) {  // Memastikan endIndex > 2
-            result.add(MessageContent.Bold(remainingText.substring(2, endIndex)))
-            remainingText = remainingText.substring(endIndex + 2)
-        } else {
-            result.add(MessageContent.Text(remainingText))
-            remainingText = ""
-        }
-    }
-
-    else -> {
-        val codeBlockIndex = remainingText.indexOf("```")
-        val inlineCodeIndex = remainingText.indexOf("`")
-        val boldIndex = remainingText.indexOf("**")
-
-        val nextSpecialChar = listOf(
-            codeBlockIndex,
-            inlineCodeIndex,
-            boldIndex
-        ).filter { it != -1 }.minOrNull()
-
-        if (nextSpecialChar != null && nextSpecialChar > 0) {
-            result.add(MessageContent.Text(remainingText.substring(0, nextSpecialChar)))
-            remainingText = remainingText.substring(nextSpecialChar)
-        } else {
-            result.add(MessageContent.Text(remainingText))
-            remainingText = ""
-        }
-    }
+    return result
 }
-}
-return result
-}
-
 
 
 @Composable
@@ -415,6 +471,10 @@ private fun AIMessageWithContent(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                     }
+                    is MessageContent.Table -> {
+                        TableContent(headers = item.headers, rows = item.rows, isDark = isDark)
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
                 }
             }
 
@@ -433,6 +493,146 @@ private fun AIMessageWithContent(
                         onClick = { onRegenerate?.invoke() },
                         isDark = isDark
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableContent(
+    headers: List<String>,
+    rows: List<List<String>>,
+    isDark: Boolean
+) {
+    val context = LocalContext.current
+    var copied by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (isDark) Color(0xFF1E1E1E) else Color(0xFFF6F8FA))
+            .border(
+                width = 1.dp,
+                color = if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(12.dp)
+            )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(if (isDark) Color(0xFF2D2D2D) else Color(0xFFE1E4E8))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "📊",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Text(
+                    text = "Table",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isDark) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "${rows.size} rows",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isDark) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.5f)
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    val csv = buildString {
+                        append(headers.joinToString(","))
+                        append("\n")
+                        rows.forEach { row ->
+                            append(row.joinToString(","))
+                            append("\n")
+                        }
+                    }
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("table", csv))
+                    copied = true
+                    Toast.makeText(context, "Table copied as CSV!", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        delay(2000)
+                        copied = false
+                    }
+                },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                    contentDescription = "Copy table",
+                    tint = if (copied) Color(0xFF34A853) else {
+                        if (isDark) Color(0xFF8AB4F8) else Color(0xFF4285F4)
+                    },
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(12.dp)
+        ) {
+            Column {
+                Row {
+                    headers.forEach { header ->
+                        Box(
+                            modifier = Modifier
+                                .width(120.dp)
+                                .background(if (isDark) Color(0xFF2D2D2D) else Color(0xFFE1E4E8))
+                                .padding(8.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Text(
+                                text = header,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isDark) Color(0xFF8AB4F8) else Color(0xFF1A73E8),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = if (isDark) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.2f)
+                )
+
+                rows.forEach { row ->
+                    Row {
+                        row.forEach { cell ->
+                            Box(
+                                modifier = Modifier
+                                    .width(120.dp)
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Text(
+                                    text = cell,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isDark) Color(0xFFE3E3E3) else Color(0xFF24292E),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -712,6 +912,10 @@ fun StreamingMessageItem(text: String, modifier: Modifier = Modifier) {
                             )
                         }
                         Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is MessageContent.Table -> {
+                        TableContent(headers = item.headers, rows = item.rows, isDark = isDark)
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
                 }
             }
