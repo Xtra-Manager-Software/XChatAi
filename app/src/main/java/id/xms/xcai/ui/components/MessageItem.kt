@@ -7,42 +7,17 @@ import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,34 +32,22 @@ import id.xms.xcai.data.local.ChatEntity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
-/**
- * Sealed class representing different types of message content
- */
 sealed class MessageContent {
     data class Text(val content: String) : MessageContent()
     data class Code(val code: String, val language: String = "") : MessageContent()
     data class InlineCode(val code: String) : MessageContent()
     data class Bold(val text: String) : MessageContent()
-    data class Italic(val text: String) : MessageContent()
-    data class Link(val text: String, val url: String) : MessageContent()
-    data class OrderedList(val items: List<String>) : MessageContent()
-    data class UnorderedList(val items: List<String>) : MessageContent()
-    data class Quote(val text: String) : MessageContent()
 }
 
-/**
- * Main message item composable with edit & regenerate support
- */
 @Composable
 fun MessageItem(
     message: ChatEntity,
     modifier: Modifier = Modifier,
     isLastUserMessage: Boolean = false,
-    onEditMessage: ((String, String) -> Unit)? = null, // (messageId, newText)
-    onRegenerateResponse: ((String) -> Unit)? = null // (userMessageId)
+    onEditMessage: ((String, String) -> Unit)? = null,
+    onRegenerateResponse: ((String) -> Unit)? = null
 ) {
     val isDark = isSystemInDarkTheme()
     val time = remember(message.timestamp) {
@@ -116,16 +79,12 @@ fun MessageItem(
             fullMessageText = message.message,
             showRegenerate = isLastUserMessage,
             onRegenerate = {
-                // Find the previous user message ID
                 onRegenerateResponse?.invoke(message.id.toString())
             }
         )
     }
 }
 
-/**
- * Parse message to extract <think> tags
- */
 fun parseMessageContent(text: String): Pair<String?, List<MessageContent>> {
     val thinkingRegex = """<think>(.*?)</think>""".toRegex(RegexOption.DOT_MATCHES_ALL)
     val thinkingMatch = thinkingRegex.find(text)
@@ -135,23 +94,15 @@ fun parseMessageContent(text: String): Pair<String?, List<MessageContent>> {
     return Pair(thinking, content)
 }
 
-/**
- * Parse content for markdown formatting
- */
-/**
- * Parse content to handle markdown formatting
- * Supports: code blocks (```
- */
 private fun parseContent(text: String): List<MessageContent> {
     val result = mutableListOf<MessageContent>()
     var remainingText = text
 
     while (remainingText.isNotEmpty()) {
         when {
-            // Code blocks (```)
             remainingText.startsWith("```") -> {
                 val endIndex = remainingText.indexOf("```", 3)
-                if (endIndex != -1) {
+                if (endIndex != -1 && endIndex > 3) {  // Memastikan endIndex > 3
                     val codeBlock = remainingText.substring(3, endIndex)
                     val lines = codeBlock.lines()
                     val language = lines.firstOrNull()?.trim() ?: ""
@@ -163,65 +114,60 @@ private fun parseContent(text: String): List<MessageContent> {
                     result.add(MessageContent.Code(code.trim(), language))
                     remainingText = remainingText.substring(endIndex + 3).trimStart()
                 } else {
+                    // Tidak ada closing backticks, treat sebagai text
                     result.add(MessageContent.Text(remainingText))
                     remainingText = ""
                 }
         }
 
-        // Inline code (`)
-        remainingText.startsWith("`") -> {
+        remainingText.startsWith("`") && !remainingText.startsWith("```") -> {
             val endIndex = remainingText.indexOf("`", 1)
-            if (endIndex != -1) {
-                result.add(MessageContent.InlineCode(remainingText.substring(1, endIndex)))
-                remainingText = remainingText.substring(endIndex + 1)
-            } else {
-                result.add(MessageContent.Text(remainingText))
-                remainingText = ""
-            }
-        }
-
-        // Bold (**)
-        remainingText.startsWith("**") -> {
-            val endIndex = remainingText.indexOf("**", 2)
-            if (endIndex != -1) {
-                result.add(MessageContent.Bold(remainingText.substring(2, endIndex)))
-                remainingText = remainingText.substring(endIndex + 2)
-            } else {
-                result.add(MessageContent.Text(remainingText))
-                remainingText = ""
-            }
-        }
-
-        // Regular text
-        else -> {
-            val codeBlockIndex = remainingText.indexOf("```")
-                val inlineCodeIndex = remainingText.indexOf("`")
-            val boldIndex = remainingText.indexOf("**")
-
-            val nextSpecialChar = listOf(
-                codeBlockIndex,
-                inlineCodeIndex,
-                boldIndex
-            ).filter { it != -1 }.minOrNull()
-
-            if (nextSpecialChar != null && nextSpecialChar > 0) {
-                result.add(MessageContent.Text(remainingText.substring(0, nextSpecialChar)))
-                remainingText = remainingText.substring(nextSpecialChar)
-            } else {
-                result.add(MessageContent.Text(remainingText))
-                remainingText = ""
-            }
+        if (endIndex != -1 && endIndex > 1) {  // Memastikan endIndex > 1
+            result.add(MessageContent.InlineCode(remainingText.substring(1, endIndex)))
+            remainingText = remainingText.substring(endIndex + 1)
+        } else {
+            result.add(MessageContent.Text(remainingText))
+            remainingText = ""
         }
     }
+
+    remainingText.startsWith("**") -> {
+        val endIndex = remainingText.indexOf("**", 2)
+        if (endIndex != -1 && endIndex > 2) {  // Memastikan endIndex > 2
+            result.add(MessageContent.Bold(remainingText.substring(2, endIndex)))
+            remainingText = remainingText.substring(endIndex + 2)
+        } else {
+            result.add(MessageContent.Text(remainingText))
+            remainingText = ""
+        }
+    }
+
+    else -> {
+        val codeBlockIndex = remainingText.indexOf("```")
+        val inlineCodeIndex = remainingText.indexOf("`")
+        val boldIndex = remainingText.indexOf("**")
+
+        val nextSpecialChar = listOf(
+            codeBlockIndex,
+            inlineCodeIndex,
+            boldIndex
+        ).filter { it != -1 }.minOrNull()
+
+        if (nextSpecialChar != null && nextSpecialChar > 0) {
+            result.add(MessageContent.Text(remainingText.substring(0, nextSpecialChar)))
+            remainingText = remainingText.substring(nextSpecialChar)
+        } else {
+            result.add(MessageContent.Text(remainingText))
+            remainingText = ""
+        }
+    }
+}
 }
 return result
 }
 
 
 
-/**
- * User message with edit support
- */
 @Composable
 private fun UserMessage(
     message: String,
@@ -241,7 +187,6 @@ private fun UserMessage(
         horizontalAlignment = Alignment.End
     ) {
         if (isEditing) {
-            // Edit mode
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = if (isDark) Color(0xFF2D2D2D) else Color(0xFFF5F5F5),
@@ -302,7 +247,6 @@ private fun UserMessage(
                 }
             }
         } else {
-            // Normal view
             Surface(
                 shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp),
                 color = Color(0xFF4285F4),
@@ -334,7 +278,6 @@ private fun UserMessage(
                     }
                 )
 
-                // ✅ Edit button (only on last user message)
                 if (showActions) {
                     IconButton(
                         onClick = { isEditing = true },
@@ -357,9 +300,6 @@ private fun UserMessage(
     }
 }
 
-/**
- * AI message with regenerate support
- */
 @Composable
 private fun AIMessageWithContent(
     thinking: String?,
@@ -378,7 +318,6 @@ private fun AIMessageWithContent(
             .fillMaxWidth()
             .padding(vertical = 8.dp)
     ) {
-        // AI Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -476,23 +415,19 @@ private fun AIMessageWithContent(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                     }
-                    else -> {}
                 }
             }
 
-            // Action buttons
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 8.dp)
             ) {
-                // Copy button
                 CopyButton(
                     text = fullMessageText,
                     context = context,
                     isDark = isDark
                 )
 
-                // ✅ Regenerate button (only on last AI message)
                 if (showRegenerate) {
                     RegenerateButton(
                         onClick = { onRegenerate?.invoke() },
@@ -504,9 +439,6 @@ private fun AIMessageWithContent(
     }
 }
 
-/**
- * Regenerate response button
- */
 @Composable
 private fun RegenerateButton(
     onClick: () -> Unit,
@@ -549,9 +481,6 @@ private fun RegenerateButton(
     }
 }
 
-/**
- * Custom text button
- */
 @Composable
 private fun TextButton(
     onClick: () -> Unit,
@@ -578,9 +507,6 @@ private fun TextButton(
         )
     }
 }
-
-// Keep existing CodeBlock, InlineCodeText, CopyButton, StreamingMessageItem as before
-// (They remain unchanged from previous version)
 
 @Composable
 private fun CodeBlock(code: String, language: String, isDark: Boolean) {
@@ -787,9 +713,45 @@ fun StreamingMessageItem(text: String, modifier: Modifier = Modifier) {
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                     }
-                    else -> {}
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun ThinkingCard(thinking: String) {
+    val isDark = isSystemInDarkTheme()
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = if (isDark) Color(0xFF2D2D2D).copy(alpha = 0.8f) else Color(0xFFF1F3F4),
+        border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.2f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "🤔",
+                    style = MaterialTheme.typography.headlineSmall
+                )
+                Text(
+                    text = "Thinking...",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isDark) Color(0xFF8AB4F8) else Color(0xFF1A73E8)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = thinking,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isDark) Color.White.copy(alpha = 0.8f) else Color.Black.copy(alpha = 0.8f),
+                lineHeight = 20.sp
+            )
         }
     }
 }
