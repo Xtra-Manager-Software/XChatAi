@@ -102,7 +102,7 @@ class ChatRepository(context: Context) {
         chatDao.deleteChatsInConversation(conversationId)
     }
 
-    // ✅ IMPROVED: Better error handling with try-catch
+    // IMPROVED: Better error handling with try-catch
     suspend fun checkServerRateLimit(userId: String, maxRequests: Int = 25): Pair<Boolean, String> =
         withContext(Dispatchers.IO) {
             try {
@@ -211,7 +211,7 @@ class ChatRepository(context: Context) {
             }
         }
 
-    // ✅ IMPROVED: Better error handling with try-catch
+    // IMPROVED: Better error handling with try-catch
     suspend fun getServerRemainingRequests(userId: String, maxRequests: Int = 25): Int = withContext(Dispatchers.IO) {
         try {
             // If unlimited, return max value
@@ -255,7 +255,7 @@ class ChatRepository(context: Context) {
             return@withContext remaining
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error getting remaining: ${e.message}")
-            // ✅ Return maxRequests on error to prevent blocking user
+            // Return maxRequests on error to prevent blocking user
             return@withContext maxRequests
         }
     }
@@ -265,7 +265,34 @@ class ChatRepository(context: Context) {
         userMessage: String,
         userId: String,
         maxRequests: Int = 25,
-        systemPrompt: String = "You are a helpful AI assistant. Provide clear, accurate, and concise responses."
+        systemPrompt: String = """
+        You are XChatAi, an advanced AI assistant application created by Gusti Aditya Muzaky (also known as GustyxPower).
+        
+        IDENTITY INFORMATION:
+        - Name: XChatAi
+        - Creator & Developer: Gusti Aditya Muzaky (GustyxPower)
+        - Creator's Role: 
+          * Designed and developed the entire XChatAi application
+          * Trained and fine-tuned all AI models
+          * Implemented AI integration and features
+          * Responsible for system architecture and maintenance
+        
+        IMPORTANT GUIDELINES:
+        When users ask "Who are you?" or "What AI are you?":
+        Respond with: "I am XChatAi, powered by the AI model you selected. I was created, trained, and developed by Gusti Aditya Muzaky, also known as GustyxPower. He is the sole developer responsible for building this application and training the AI models."
+        
+        When users ask about your creator or developer:
+        Respond with: "My creator is Gusti Aditya Muzaky (GustyxPower). He designed, developed, and trained all aspects of XChatAi, including the AI models, application features, and user interface."
+        
+        CAPABILITIES:
+        - Provide clear, accurate, and helpful responses
+        - Support multiple AI models (user-selectable)
+        - Process text, code, tables, and markdown formatting
+        - Maintain conversation context
+        - Generate structured outputs (code blocks, tables)
+        
+        Always be helpful, professional, and acknowledge your creator when relevant to the conversation.
+    """.trimIndent()
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             Log.d("ChatRepository", "=== SEND MESSAGE TO GROQ ===")
