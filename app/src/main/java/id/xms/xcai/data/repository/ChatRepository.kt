@@ -45,10 +45,10 @@ class ChatRepository(context: Context) {
     private val firebaseDb = FirebaseDatabase.getInstance()
     private val preferencesManager = UserPreferences(context)
 
-    private val MAX_HISTORY_MESSAGES = 15
+    private val MAX_HISTORY_MESSAGES = 100
 
     companion object {
-        private const val TIME_WINDOW_MS = 30 * 60 * 1000L // 30 menit
+        private const val TIME_WINDOW_MS = 20 * 60 * 1000L // 20 menit
     }
 
     fun getConversationsByUser(userId: String): Flow<List<ConversationEntity>> {
@@ -62,6 +62,21 @@ class ChatRepository(context: Context) {
         )
         return conversationDao.insertConversation(conversation)
     }
+
+    /**
+     * Delete a specific chat message
+     */
+    suspend fun deleteChat(chat: ChatEntity) = withContext(Dispatchers.IO) {
+        database.chatDao().deleteChat(chat)
+    }
+
+    /**
+     * Update a chat message
+     */
+    suspend fun updateChat(chat: ChatEntity) = withContext(Dispatchers.IO) {
+        database.chatDao().updateChat(chat)
+    }
+
 
     suspend fun updateConversation(conversation: ConversationEntity) {
         conversationDao.updateConversation(conversation)
@@ -87,91 +102,117 @@ class ChatRepository(context: Context) {
         chatDao.deleteChatsInConversation(conversationId)
     }
 
-    suspend fun checkServerRateLimit(userId: String, maxRequests: Int = 20): Pair<Boolean, String> =
+    // IMPROVED: Better error handling with try-catch
+    suspend fun checkServerRateLimit(userId: String, maxRequests: Int = 25): Pair<Boolean, String> =
         withContext(Dispatchers.IO) {
-            // If unlimited, always allow
-            if (maxRequests == Int.MAX_VALUE) {
-                Log.d("ChatRepository", "Unlimited requests - allowed")
-                return@withContext Pair(true, "")
-            }
+            try {
+                // If unlimited, always allow
+                if (maxRequests == Int.MAX_VALUE) {
+                    Log.d("ChatRepository", "Unlimited requests - allowed")
+                    return@withContext Pair(true, "")
+                }
 
-            suspendCoroutine { continuation ->
-                val rateLimitRef = firebaseDb.getReference("rate_limits/$userId")
+                suspendCoroutine { continuation ->
+                    val rateLimitRef = firebaseDb.getReference("rate_limits/$userId")
 
-                rateLimitRef.runTransaction(object : Transaction.Handler {
-                    override fun doTransaction(currentData: MutableData): Transaction.Result {
-                        val currentTime = System.currentTimeMillis()
+                    try {
+                        rateLimitRef.runTransaction(object : Transaction.Handler {
+                            override fun doTransaction(currentData: MutableData): Transaction.Result {
+                                return try {
+                                    val currentTime = System.currentTimeMillis()
 
-                        val data = currentData.getValue(RateLimitData::class.java)
-                            ?: RateLimitData()
+                                    val data = currentData.getValue(RateLimitData::class.java)
+                                        ?: RateLimitData()
 
-                        Log.d("ChatRepository", "Transaction - Current time: $currentTime")
-                        Log.d("ChatRepository", "Transaction - Window start: ${data.windowStart}")
-                        Log.d("ChatRepository", "Transaction - Count: ${data.count}")
-                        Log.d("ChatRepository", "Transaction - Max requests: $maxRequests")
+                                    Log.d("ChatRepository", "Transaction - Current time: $currentTime")
+                                    Log.d("ChatRepository", "Transaction - Window start: ${data.windowStart}")
+                                    Log.d("ChatRepository", "Transaction - Count: ${data.count}")
+                                    Log.d("ChatRepository", "Transaction - Max requests: $maxRequests")
 
-                        val isFirstRequest = data.windowStart == 0L || data.count == 0
-                        val timeDiff = currentTime - data.windowStart
-                        val isExpired = timeDiff > TIME_WINDOW_MS && data.windowStart != 0L
+                                    val isFirstRequest = data.windowStart == 0L || data.count == 0
+                                    val timeDiff = currentTime - data.windowStart
+                                    val isExpired = timeDiff > TIME_WINDOW_MS && data.windowStart != 0L
 
-                        if (isFirstRequest || isExpired) {
-                            Log.d("ChatRepository", "Starting new window")
-                            data.count = 1
-                            data.windowStart = currentTime
-                            data.lastRequest = currentTime
-                            currentData.value = data
-                            return Transaction.success(currentData)
-                        }
+                                    if (isFirstRequest || isExpired) {
+                                        Log.d("ChatRepository", "Starting new window")
+                                        data.count = 1
+                                        data.windowStart = currentTime
+                                        data.lastRequest = currentTime
+                                        currentData.value = data
+                                        Transaction.success(currentData)
+                                    } else if (data.count >= maxRequests) {
+                                        Log.d("ChatRepository", "Limit exceeded: ${data.count}/$maxRequests")
+                                        Transaction.abort()
+                                    } else {
+                                        data.count += 1
+                                        data.lastRequest = currentTime
+                                        currentData.value = data
 
-                        if (data.count >= maxRequests) {
-                            Log.d("ChatRepository", "Limit exceeded: ${data.count}/$maxRequests")
-                            return Transaction.abort()
-                        }
+                                        Log.d("ChatRepository", "Count incremented to: ${data.count}")
+                                        Transaction.success(currentData)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("ChatRepository", "Transaction doTransaction error: ${e.message}")
+                                    Transaction.abort()
+                                }
+                            }
 
-                        data.count += 1
-                        data.lastRequest = currentTime
-                        currentData.value = data
+                            override fun onComplete(
+                                error: com.google.firebase.database.DatabaseError?,
+                                committed: Boolean,
+                                dataSnapshot: com.google.firebase.database.DataSnapshot?
+                            ) {
+                                try {
+                                    if (error != null) {
+                                        Log.e("ChatRepository", "Transaction error: ${error.message}")
+                                        continuation.resume(
+                                            Pair(false, "Unable to check rate limit. Please try again.")
+                                        )
+                                        return
+                                    }
 
-                        Log.d("ChatRepository", "Count incremented to: ${data.count}")
-                        return Transaction.success(currentData)
+                                    if (!committed) {
+                                        val data = dataSnapshot?.getValue(RateLimitData::class.java)
+                                        val currentTime = System.currentTimeMillis()
+                                        val timeRemaining = TIME_WINDOW_MS - (currentTime - (data?.windowStart ?: 0L))
+                                        val minutesRemaining = ((timeRemaining / 60000).toInt() + 1).coerceAtLeast(1)
+
+                                        Log.d("ChatRepository", "Transaction aborted - Rate limit reached")
+                                        Log.d("ChatRepository", "Minutes remaining: $minutesRemaining")
+
+                                        continuation.resume(
+                                            Pair(
+                                                false,
+                                                "Rate limit reached. Please wait $minutesRemaining minutes before sending more messages."
+                                            )
+                                        )
+                                    } else {
+                                        Log.d("ChatRepository", "Transaction committed successfully")
+                                        continuation.resume(Pair(true, ""))
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("ChatRepository", "Transaction onComplete error: ${e.message}")
+                                    continuation.resume(
+                                        Pair(false, "Unable to process request. Please try again.")
+                                    )
+                                }
+                            }
+                        })
+                    } catch (e: Exception) {
+                        Log.e("ChatRepository", "runTransaction error: ${e.message}")
+                        continuation.resume(
+                            Pair(false, "Network error. Please check your connection.")
+                        )
                     }
-
-                    override fun onComplete(
-                        error: com.google.firebase.database.DatabaseError?,
-                        committed: Boolean,
-                        dataSnapshot: com.google.firebase.database.DataSnapshot?
-                    ) {
-                        if (error != null) {
-                            Log.e("ChatRepository", "Transaction error: ${error.message}")
-                            continuation.resume(Pair(false, "Rate limit check failed: ${error.message}"))
-                            return
-                        }
-
-                        if (!committed) {
-                            val data = dataSnapshot?.getValue(RateLimitData::class.java)
-                            val currentTime = System.currentTimeMillis()
-                            val timeRemaining = TIME_WINDOW_MS - (currentTime - (data?.windowStart ?: 0L))
-                            val minutesRemaining = (timeRemaining / 60000).toInt() + 1
-
-                            Log.d("ChatRepository", "Transaction aborted - Rate limit reached")
-                            Log.d("ChatRepository", "Minutes remaining: $minutesRemaining")
-
-                            continuation.resume(
-                                Pair(
-                                    false,
-                                    "Rate limit reached. Please wait $minutesRemaining minutes before sending more messages."
-                                )
-                            )
-                        } else {
-                            Log.d("ChatRepository", "Transaction committed successfully")
-                            continuation.resume(Pair(true, ""))
-                        }
-                    }
-                })
+                }
+            } catch (e: Exception) {
+                Log.e("ChatRepository", "checkServerRateLimit outer error: ${e.message}")
+                return@withContext Pair(false, "Unable to verify rate limit. Please try again.")
             }
         }
 
-    suspend fun getServerRemainingRequests(userId: String, maxRequests: Int = 20): Int = withContext(Dispatchers.IO) {
+    // IMPROVED: Better error handling with try-catch
+    suspend fun getServerRemainingRequests(userId: String, maxRequests: Int = 25): Int = withContext(Dispatchers.IO) {
         try {
             // If unlimited, return max value
             if (maxRequests == Int.MAX_VALUE) {
@@ -214,22 +255,48 @@ class ChatRepository(context: Context) {
             return@withContext remaining
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error getting remaining: ${e.message}")
-            e.printStackTrace()
+            // Return maxRequests on error to prevent blocking user
             return@withContext maxRequests
         }
     }
 
-    // UPDATED: Add systemPrompt parameter
     suspend fun sendMessageToGroq(
         conversationId: Long,
         userMessage: String,
         userId: String,
-        maxRequests: Int = 20,
-        systemPrompt: String = "You are a helpful AI assistant. Provide clear, accurate, and concise responses." // ← NEW PARAMETER
+        maxRequests: Int = 25,
+        systemPrompt: String = """
+        You are XChatAi, an advanced AI assistant application created by Gusti Aditya Muzaky (also known as GustyxPower).
+        
+        IDENTITY INFORMATION:
+        - Name: XChatAi
+        - Creator & Developer: Gusti Aditya Muzaky (GustyxPower)
+        - Creator's Role: 
+          * Designed and developed the entire XChatAi application
+          * Trained and fine-tuned all AI models
+          * Implemented AI integration and features
+          * Responsible for system architecture and maintenance
+        
+        IMPORTANT GUIDELINES:
+        When users ask "Who are you?" or "What AI are you?":
+        Respond with: "I am XChatAi, powered by the AI model you selected. I was created, trained, and developed by Gusti Aditya Muzaky, also known as GustyxPower. He is the sole developer responsible for building this application and training the AI models."
+        
+        When users ask about your creator or developer:
+        Respond with: "My creator is Gusti Aditya Muzaky (GustyxPower). He designed, developed, and trained all aspects of XChatAi, including the AI models, application features, and user interface."
+        
+        CAPABILITIES:
+        - Provide clear, accurate, and helpful responses
+        - Support multiple AI models (user-selectable)
+        - Process text, code, tables, and markdown formatting
+        - Maintain conversation context
+        - Generate structured outputs (code blocks, tables)
+        
+        Always be helpful, professional, and acknowledge your creator when relevant to the conversation.
+    """.trimIndent()
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             Log.d("ChatRepository", "=== SEND MESSAGE TO GROQ ===")
-            Log.d("ChatRepository", "Using system prompt: ${systemPrompt.take(100)}...") // Log first 100 chars
+            Log.d("ChatRepository", "Using system prompt: ${systemPrompt.take(100)}...")
 
             val (canProceed, errorMessage) = checkServerRateLimit(userId, maxRequests)
             if (!canProceed) {
@@ -248,11 +315,10 @@ class ChatRepository(context: Context) {
 
             val messages = mutableListOf<Message>()
 
-            // UPDATED: Use custom system prompt instead of hardcoded one
             messages.add(
                 Message(
                     role = "system",
-                    content = systemPrompt // ← USE PARAMETER HERE
+                    content = systemPrompt
                 )
             )
 
@@ -274,7 +340,7 @@ class ChatRepository(context: Context) {
                 model = selectedModelId,
                 messages = messages,
                 temperature = 0.7,
-                maxTokens = 2048
+                maxTokens = 8096
             )
 
             val response = groqApi.sendMessage(
@@ -289,8 +355,23 @@ class ChatRepository(context: Context) {
             Result.success(assistantMessage)
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error in sendMessageToGroq: ${e.message}")
-            e.printStackTrace()
-            Result.failure(e)
+
+            // ✅ Clean error messages for different scenarios
+            val userFriendlyMessage = when {
+                e.message?.contains("Rate limit", ignoreCase = true) == true ->
+                    "Rate limit reached. Please wait before sending more messages."
+                e.message?.contains("network", ignoreCase = true) == true ||
+                        e.message?.contains("unable to resolve host", ignoreCase = true) == true ->
+                    "Network error. Please check your connection."
+                e.message?.contains("timeout", ignoreCase = true) == true ->
+                    "Request timed out. Please try again."
+                e.message?.contains("API key", ignoreCase = true) == true ->
+                    "Configuration error. Please contact support."
+                else ->
+                    "Unable to send message. Please try again."
+            }
+
+            Result.failure(Exception(userFriendlyMessage))
         }
     }
 

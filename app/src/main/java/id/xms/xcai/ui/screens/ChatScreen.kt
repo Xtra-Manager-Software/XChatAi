@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -35,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -113,19 +115,31 @@ fun ChatScreen(
             try {
                 listState.animateScrollToItem(targetIndex)
             } catch (e: Exception) {
-                // Ignore
+                // Ignore scroll errors
             }
         }
     }
 
     LaunchedEffect(chatUiState.error) {
         chatUiState.error?.let { error ->
-            if (error.contains("Rate limit", ignoreCase = true)) {
-                rateLimitMessage = error
+            if (error.contains("rate limit", ignoreCase = true) ||
+                error.contains("request limit", ignoreCase = true) ||
+                error.contains("wait", ignoreCase = true)) {
+
+                rateLimitMessage = if (premiumStatus.isPremium) {
+                    "You've reached your ${premiumStatus.maxRequests} requests limit. Please wait 30 minutes before sending more messages."
+                } else {
+                    error
+                }
                 showRateLimitDialog = true
+
             } else {
-                snackbarHostState.showSnackbar(error)
+                snackbarHostState.showSnackbar(
+                    message = error,
+                    duration = SnackbarDuration.Short
+                )
             }
+
             chatViewModel.clearError()
         }
     }
@@ -338,8 +352,24 @@ fun ChatScreen(
                                 items = chatUiState.messages,
                                 key = { it.id }
                             ) { message ->
+                                // ✅ Determine if this is the last user message
+                                val messageIndex = chatUiState.messages.indexOf(message)
+                                val isLastUserMessage = message.isUser &&
+                                        messageIndex == chatUiState.messages.indexOfLast { it.isUser }
+
                                 MessageItem(
-                                    message = message
+                                    message = message,
+                                    isLastUserMessage = isLastUserMessage,
+                                    onEditMessage = { messageId, newText ->
+                                        authUiState.user?.uid?.let { userId ->
+                                            chatViewModel.editMessageAndRegenerate(userId, messageId, newText)
+                                        }
+                                    },
+                                    onRegenerateResponse = { _ ->
+                                        authUiState.user?.uid?.let { userId ->
+                                            chatViewModel.regenerateResponse(userId)
+                                        }
+                                    }
                                 )
                             }
 
@@ -446,14 +476,11 @@ fun ChatScreen(
                             )
                         }
 
-                        // ✅ NEW: Send/Stop Button with conditional logic
                         Surface(
                             onClick = {
                                 if (chatUiState.isStreaming) {
-                                    // Stop streaming
                                     chatViewModel.stopStreaming()
                                 } else {
-                                    // Send message
                                     if (messageText.isNotBlank() && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium)) {
                                         authUiState.user?.uid?.let { userId ->
                                             chatViewModel.sendMessage(userId, messageText.trim())
@@ -468,9 +495,9 @@ fun ChatScreen(
                             },
                             shape = RoundedCornerShape(28.dp),
                             color = if (chatUiState.isStreaming) {
-                                Color(0xFFEA4335) // Red for stop
+                                Color(0xFFEA4335)
                             } else if (messageText.isNotBlank() && !chatUiState.isLoading && (chatUiState.remainingRequests > 0 || premiumStatus.isPremium) && !chatUiState.isLoadingCounter) {
-                                Color(0xFF4285F4) // Blue for send
+                                Color(0xFF4285F4)
                             } else {
                                 if (isDark) {
                                     Color(0xFF2D2D2D).copy(alpha = 0.5f)
@@ -486,7 +513,6 @@ fun ChatScreen(
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 if (chatUiState.isStreaming) {
-                                    // Stop icon
                                     Icon(
                                         imageVector = Icons.Default.Stop,
                                         contentDescription = "Stop",
@@ -494,7 +520,6 @@ fun ChatScreen(
                                         modifier = Modifier.size(24.dp)
                                     )
                                 } else {
-                                    // Send icon
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.Send,
                                         contentDescription = "Send",
@@ -513,7 +538,6 @@ fun ChatScreen(
         }
     }
 
-    // Dialogs
     if (showRateLimitDialog) {
         AlertDialog(
             onDismissRequest = { showRateLimitDialog = false },
@@ -532,7 +556,22 @@ fun ChatScreen(
                 )
             },
             text = {
-                Text(rateLimitMessage)
+                Column {
+                    Text(rateLimitMessage)
+
+                    if (!premiumStatus.isPremium) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Upgrade to Premium:",
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "• 100 requests per 30 minutes\n• Priority support\n• Faster response times",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = { showRateLimitDialog = false }) {
@@ -557,7 +596,19 @@ fun ChatScreen(
                 Text("Low Quota Warning")
             },
             text = {
-                Text("You have only ${chatUiState.remainingRequests} requests remaining.")
+                Column {
+                    Text("You have only ${chatUiState.remainingRequests} requests remaining.")
+
+                    if (!premiumStatus.isPremium) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Consider upgrading to Premium for 100 requests!",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4285F4)
+                        )
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = { showLowQuotaWarning = false }) {

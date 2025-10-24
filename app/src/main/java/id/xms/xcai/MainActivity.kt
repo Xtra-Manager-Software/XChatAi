@@ -17,10 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import id.xms.xcai.data.preferences.UserPreferences
-import id.xms.xcai.data.repository.AppUpdateInfo
-import id.xms.xcai.data.repository.UpdateManager
 import id.xms.xcai.ui.components.DrawerContent
-import id.xms.xcai.ui.components.ForceUpdateDialog
 import id.xms.xcai.ui.screens.ChatScreen
 import id.xms.xcai.ui.screens.LoginScreen
 import id.xms.xcai.ui.screens.OnboardingScreen
@@ -45,7 +42,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             XChatAiTheme {
-                AppContentWithUpdateCheck(
+                AppContent(
                     authViewModel = authViewModel,
                     chatViewModel = chatViewModel,
                     settingsViewModel = settingsViewModel
@@ -53,205 +50,146 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
 
-@Composable
-private fun AppContentWithUpdateCheck(
-    authViewModel: AuthViewModel,
-    chatViewModel: ChatViewModel,
-    settingsViewModel: SettingsViewModel
-) {
-    val context = LocalContext.current
-    val updateManager = remember { UpdateManager(context) }
+    @Composable
+    private fun AppContent(
+        authViewModel: AuthViewModel,
+        chatViewModel: ChatViewModel,
+        settingsViewModel: SettingsViewModel
+    ) {
+        val context = LocalContext.current
+        val preferencesManager = remember { UserPreferences(context) }
 
-    var updateInfo by remember { mutableStateOf<AppUpdateInfo?>(null) }
-    var isCheckingUpdate by remember { mutableStateOf(true) }
-    var updateCheckError by remember { mutableStateOf(false) }
+        // States
+        val authUiState by authViewModel.authUiState.collectAsState()
+        val chatUiState by chatViewModel.chatUiState.collectAsState()
+        val conversationUiState by chatViewModel.conversationUiState.collectAsState()
+        val premiumStatus by chatViewModel.premiumStatus.collectAsState()
+        val onboardingCompleted by preferencesManager.onboardingCompleted.collectAsState(initial = true)
+        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+        val scope = rememberCoroutineScope()
 
-    // Check for updates on app start
-    LaunchedEffect(Unit) {
-        updateManager.checkForUpdates().onSuccess { info ->
-            updateInfo = info
-            isCheckingUpdate = false
-        }.onFailure { error ->
-            // If update check fails, allow app to continue
-            android.util.Log.e("MainActivity", "Update check failed: ${error.message}")
-            isCheckingUpdate = false
-            updateCheckError = true
-        }
-    }
+        // Screen state management
+        var currentScreen by remember { mutableStateOf(Screen.Loading) }
 
-    when {
-        // Show loading while checking update
-        isCheckingUpdate -> {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = Color(0xFF4285F4))
+        // Load conversations when user logs in
+        LaunchedEffect(authUiState.user) {
+            authUiState.user?.uid?.let { userId ->
+                chatViewModel.loadConversations(userId)
             }
         }
 
-        // Show force update dialog if required
-        updateInfo != null && updateManager.isUpdateRequired(updateInfo!!) -> {
-            ForceUpdateDialog(
-                updateInfo = updateInfo!!,
-                currentVersion = updateManager.getCurrentVersion()
-            )
-        }
-
-        // Show normal app content
-        else -> {
-            AppContent(
-                authViewModel = authViewModel,
-                chatViewModel = chatViewModel,
-                settingsViewModel = settingsViewModel
-            )
-        }
-    }
-}
-
-@Composable
-private fun AppContent(
-    authViewModel: AuthViewModel,
-    chatViewModel: ChatViewModel,
-    settingsViewModel: SettingsViewModel
-) {
-    val context = LocalContext.current
-    val preferencesManager = remember { UserPreferences(context) }
-
-    // States
-    val authUiState by authViewModel.authUiState.collectAsState()
-    val chatUiState by chatViewModel.chatUiState.collectAsState()
-    val conversationUiState by chatViewModel.conversationUiState.collectAsState()
-    val premiumStatus by chatViewModel.premiumStatus.collectAsState()
-    val onboardingCompleted by preferencesManager.onboardingCompleted.collectAsState(initial = true)
-
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
-
-    // Screen state management
-    var currentScreen by remember { mutableStateOf<Screen>(Screen.Loading) }
-
-    // Load conversations when user logs in
-    LaunchedEffect(authUiState.user) {
-        authUiState.user?.uid?.let { userId ->
-            chatViewModel.loadConversations(userId)
-        }
-    }
-
-    // Determine which screen to show
-    LaunchedEffect(authUiState.user, onboardingCompleted) {
-        currentScreen = when {
-            authUiState.user == null -> Screen.Login
-            !onboardingCompleted -> Screen.Onboarding
-            else -> Screen.Chat
-        }
-    }
-
-    // Render current screen
-    when (currentScreen) {
-        Screen.Loading -> {
-            // Optional: Show loading screen while checking auth state
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = Color(0xFF4285F4))
+        // Determine which screen to show
+        LaunchedEffect(authUiState.user, onboardingCompleted) {
+            currentScreen = when {
+                authUiState.user == null -> Screen.Login
+                !onboardingCompleted -> Screen.Onboarding
+                else -> Screen.Chat
             }
         }
 
-        Screen.Login -> {
-            LoginScreen(
-                authViewModel = authViewModel,
-                onLoginSuccess = {
-                    currentScreen = if (onboardingCompleted) {
-                        Screen.Chat
-                    } else {
-                        Screen.Onboarding
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
+        // Render current screen
+        when (currentScreen) {
+            Screen.Loading -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Color(0xFF4285F4))
+                }
+            }
 
-        Screen.Onboarding -> {
-            OnboardingScreen(
-                onComplete = {
-                    // Save onboarding completed
-                    CoroutineScope(Dispatchers.IO).launch {
-                        preferencesManager.setOnboardingCompleted(true)
-                    }
-                    currentScreen = Screen.Chat
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        Screen.Chat -> {
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                drawerContent = {
-                    DrawerContent(
-                        user = authUiState.user,
-                        conversations = conversationUiState.conversations,
-                        currentConversationId = chatUiState.currentConversationId,
-                        premiumStatus = premiumStatus,
-                        isLoading = conversationUiState.isLoading,
-                        onConversationClick = { conversationId ->
-                            chatViewModel.loadChats(conversationId)
-                            scope.launch { drawerState.close() }
-                        },
-                        onNewChat = {
-                            chatViewModel.clearCurrentConversation()
-                            scope.launch { drawerState.close() }
-                        },
-                        onDeleteConversation = { conversation ->
-                            chatViewModel.deleteConversation(conversation)
-                        },
-                        onRenameConversation = { conversation, newTitle ->
-                            chatViewModel.renameConversation(conversation, newTitle)
-                        },
-                        onSettingsClick = {
-                            currentScreen = Screen.Settings
-                            scope.launch { drawerState.close() }
-                        },
-                        onLogout = {
-                            authViewModel.signOut()
-                            chatViewModel.clearCurrentConversation()
-                            currentScreen = Screen.Login
+            Screen.Login -> {
+                LoginScreen(
+                    authViewModel = authViewModel,
+                    onLoginSuccess = {
+                        currentScreen = if (onboardingCompleted) {
+                            Screen.Chat
+                        } else {
+                            Screen.Onboarding
                         }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            Screen.Onboarding -> {
+                OnboardingScreen(
+                    onComplete = {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            preferencesManager.setOnboardingCompleted(true)
+                        }
+                        currentScreen = Screen.Chat
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            Screen.Chat -> {
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        DrawerContent(
+                            user = authUiState.user,
+                            conversations = conversationUiState.conversations,
+                            currentConversationId = chatUiState.currentConversationId,
+                            premiumStatus = premiumStatus,
+                            isLoading = conversationUiState.isLoading,
+                            onConversationClick = { conversationId ->
+                                chatViewModel.loadChats(conversationId)
+                                scope.launch { drawerState.close() }
+                            },
+                            onNewChat = {
+                                chatViewModel.clearCurrentConversation()
+                                scope.launch { drawerState.close() }
+                            },
+                            onDeleteConversation = { conversation ->
+                                chatViewModel.deleteConversation(conversation)
+                            },
+                            onRenameConversation = { conversation, newTitle ->
+                                chatViewModel.renameConversation(conversation, newTitle)
+                            },
+                            onSettingsClick = {
+                                currentScreen = Screen.Settings
+                                scope.launch { drawerState.close() }
+                            },
+                            onLogout = {
+                                authViewModel.signOut()
+                                chatViewModel.clearCurrentConversation()
+                                currentScreen = Screen.Login
+                            }
+                        )
+                    }
+                ) {
+                    ChatScreen(
+                        chatViewModel = chatViewModel,
+                        authViewModel = authViewModel,
+                        onOpenDrawer = {
+                            scope.launch { drawerState.open() }
+                        },
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
-            ) {
-                ChatScreen(
-                    chatViewModel = chatViewModel,
-                    authViewModel = authViewModel,
-                    onOpenDrawer = {
-                        scope.launch { drawerState.open() }
+            }
+
+            Screen.Settings -> {
+                SettingsScreen(
+                    settingsViewModel = settingsViewModel,
+                    onNavigateBack = {
+                        currentScreen = Screen.Chat
                     },
                     modifier = Modifier.fillMaxSize()
                 )
             }
         }
-
-        Screen.Settings -> {
-            SettingsScreen(
-                settingsViewModel = settingsViewModel,
-                onNavigateBack = {
-                    currentScreen = Screen.Chat
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
     }
-}
 
-// Screen enum for better state management
-private enum class Screen {
-    Loading,
-    Login,
-    Onboarding,
-    Chat,
-    Settings
+    // Screen enum for better state management
+    private enum class Screen {
+        Loading,
+        Login,
+        Onboarding,
+        Chat,
+        Settings
+    }
 }
